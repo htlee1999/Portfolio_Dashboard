@@ -12,21 +12,7 @@ Interactive Streamlit app for building a stock portfolio, fetching live market d
 - Python 3.9+ (recommended 3.9–3.12)
 - macOS/Linux/Windows supported
 
-### Quick Start (local setup already done)
-If you’re on this machine, a virtual environment is already at `.venv`, and `requirements.txt` has been generated.
-
-Run directly without activating:
-```bash
-/Users/hongtenglee/Documents/portfolio/.venv/bin/streamlit run /Users/hongtenglee/Documents/portfolio/Portfolio.py
-```
-
-Or activate the virtual environment first:
-```bash
-source /Users/hongtenglee/Documents/portfolio/.venv/bin/activate
-streamlit run /Users/hongtenglee/Documents/portfolio/Portfolio.py
-```
-
-### Fresh Setup (on another machine)
+### Fresh Setup 
 ```bash
 git clone <your-repo-url> portfolio
 cd portfolio
