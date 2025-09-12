@@ -3,80 +3,25 @@
   "holdings": [
     {
       "Symbol": "AMD",
-      "Quantity": 42.0,
-      "Purchase_Price": 110.78,
+      "Quantity": 88.0,
+      "Purchase_Price": 88,
       "Purchase_Date": "2025-09-12",
       "Currency": "USD"
     },
     {
       "Symbol": "INTC",
-      "Quantity": 35.0,
-      "Purchase_Price": 24.71,
+      "Quantity": 88.0,
+      "Purchase_Price": 8.8,
       "Purchase_Date": "2025-09-12",
       "Currency": "USD"
     },
     {
       "Symbol": "NVDA",
-      "Quantity": 26.0,
-      "Purchase_Price": 113.46,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "SPY",
-      "Quantity": 4.0,
-      "Purchase_Price": 429.68,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "AAPL",
-      "Quantity": 1.0,
-      "Purchase_Price": 121.03,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "AMD",
-      "Quantity": 36.0,
-      "Purchase_Price": 99.615,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "ASML",
-      "Quantity": 1.0,
-      "Purchase_Price": 745.55,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "META",
-      "Quantity": 8.0,
-      "Purchase_Price": 24.68,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "AMD",
-      "Quantity": 10.0,
-      "Purchase_Price": 106.63,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "PLTR",
-      "Quantity": 10.0,
-      "Purchase_Price": 21.05,
-      "Purchase_Date": "2025-09-12",
-      "Currency": "USD"
-    },
-    {
-      "Symbol": "BABA",
-      "Quantity": 25.0,
-      "Purchase_Price": 138.08,
+      "Quantity": 88.0,
+      "Purchase_Price": 88,
       "Purchase_Date": "2025-09-12",
       "Currency": "USD"
     }
+
   ]
 }
