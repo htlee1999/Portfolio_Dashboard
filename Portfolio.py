@@ -2,13 +2,39 @@ import streamlit as st
 import pandas as pd
 
 from app_utils import setup_page, inject_css, init_session_state, create_sidebar, calculate_portfolio_metrics, format_currency, save_settings_to_storage
+from data_utils import load_portfolio_data
+from auth_utils import init_auth_session, require_auth, show_user_menu, logout, change_password_form
 
+# Initialize authentication
+init_auth_session()
+
+# Check authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("🔐 Please log in to access the Portfolio Dashboard")
+    st.info("Use the Login page in the sidebar to authenticate")
+    
+    # Show login form
+    from auth_utils import login_form
+    login_form()
+    
+    st.stop()
 
 setup_page()
 inject_css()
 init_session_state()
 create_sidebar()
+show_user_menu()
 
+# Reload portfolio data for current user
+if st.session_state.get("authenticated", False):
+    username = st.session_state.get("username")
+    st.session_state.portfolio = load_portfolio_data(username)
+
+# Handle change password modal
+if st.session_state.get("show_change_password", False):
+    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
+    change_password_form()
+    st.stop()
 
 st.markdown('<h1 class="main-header">Portfolio Analysis Dashboard</h1>', unsafe_allow_html=True)
 st.write(

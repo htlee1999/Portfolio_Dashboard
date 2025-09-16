@@ -14,10 +14,13 @@ def ensure_data_directory() -> str:
     return data_dir
 
 
-def get_portfolio_file_path() -> str:
-    """Get the path to the portfolio JSON file."""
+def get_portfolio_file_path(username: str = None) -> str:
+    """Get the path to the portfolio JSON file for a specific user."""
     data_dir = ensure_data_directory()
-    return os.path.join(data_dir, "portfolio.json")
+    if username:
+        return os.path.join(data_dir, f"portfolio_{username}.json")
+    else:
+        return os.path.join(data_dir, "portfolio.json")
 
 
 def get_settings_file_path() -> str:
@@ -26,9 +29,9 @@ def get_settings_file_path() -> str:
     return os.path.join(data_dir, "settings.json")
 
 
-def load_portfolio_data() -> pd.DataFrame:
-    """Load portfolio data from JSON file."""
-    file_path = get_portfolio_file_path()
+def load_portfolio_data(username: str = None) -> pd.DataFrame:
+    """Load portfolio data from JSON file for a specific user."""
+    file_path = get_portfolio_file_path(username)
     
     if not os.path.exists(file_path):
         # Return empty DataFrame with correct columns if file doesn't exist
@@ -61,14 +64,15 @@ def load_portfolio_data() -> pd.DataFrame:
         return pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
 
 
-def save_portfolio_data(portfolio_df: pd.DataFrame) -> bool:
-    """Save portfolio data to JSON file."""
+def save_portfolio_data(portfolio_df: pd.DataFrame, username: str = None) -> bool:
+    """Save portfolio data to JSON file for a specific user."""
     try:
-        file_path = get_portfolio_file_path()
+        file_path = get_portfolio_file_path(username)
         
         # Convert DataFrame to dictionary format
         data = {
             "last_updated": datetime.now().isoformat(),
+            "username": username,
             "holdings": portfolio_df.to_dict('records')
         }
         
@@ -131,11 +135,11 @@ def save_settings(settings: Dict[str, Any]) -> bool:
 
 
 def add_holding(symbol: str, quantity: float, purchase_price: float, 
-                purchase_date: datetime.date, currency: str) -> bool:
-    """Add a new holding to the portfolio."""
+                purchase_date: datetime.date, currency: str, username: str = None) -> bool:
+    """Add a new holding to the portfolio for a specific user."""
     try:
         # Load current portfolio
-        portfolio_df = load_portfolio_data()
+        portfolio_df = load_portfolio_data(username)
         
         # Create new holding
         new_holding = pd.DataFrame({
@@ -150,24 +154,24 @@ def add_holding(symbol: str, quantity: float, purchase_price: float,
         portfolio_df = pd.concat([portfolio_df, new_holding], ignore_index=True)
         
         # Save updated portfolio
-        return save_portfolio_data(portfolio_df)
+        return save_portfolio_data(portfolio_df, username)
         
     except Exception as e:
         st.error(f"Error adding holding: {str(e)}")
         return False
 
 
-def remove_holding(symbol: str) -> bool:
-    """Remove a holding from the portfolio."""
+def remove_holding(symbol: str, username: str = None) -> bool:
+    """Remove a holding from the portfolio for a specific user."""
     try:
         # Load current portfolio
-        portfolio_df = load_portfolio_data()
+        portfolio_df = load_portfolio_data(username)
         
         # Remove holding
         portfolio_df = portfolio_df[portfolio_df["Symbol"] != symbol.upper()].reset_index(drop=True)
         
         # Save updated portfolio
-        return save_portfolio_data(portfolio_df)
+        return save_portfolio_data(portfolio_df, username)
         
     except Exception as e:
         st.error(f"Error removing holding: {str(e)}")
@@ -205,14 +209,14 @@ def update_holding(symbol: str, quantity: float = None, purchase_price: float = 
         return False
 
 
-def clear_all_holdings() -> bool:
-    """Clear all holdings from the portfolio."""
+def clear_all_holdings(username: str = None) -> bool:
+    """Clear all holdings from the portfolio for a specific user."""
     try:
         # Create empty portfolio
         empty_portfolio = pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
         
         # Save empty portfolio
-        return save_portfolio_data(empty_portfolio)
+        return save_portfolio_data(empty_portfolio, username)
         
     except Exception as e:
         st.error(f"Error clearing holdings: {str(e)}")
@@ -280,10 +284,10 @@ def import_portfolio_from_csv(csv_data: pd.DataFrame) -> bool:
         return False
 
 
-def get_portfolio_stats() -> Dict[str, Any]:
-    """Get portfolio statistics and metadata."""
+def get_portfolio_stats(username: str = None) -> Dict[str, Any]:
+    """Get portfolio statistics and metadata for a specific user."""
     try:
-        portfolio_df = load_portfolio_data()
+        portfolio_df = load_portfolio_data(username)
         settings = load_settings()
         
         stats = {
@@ -291,11 +295,12 @@ def get_portfolio_stats() -> Dict[str, Any]:
             "currencies": portfolio_df["Currency"].unique().tolist() if not portfolio_df.empty else [],
             "symbols": portfolio_df["Symbol"].unique().tolist() if not portfolio_df.empty else [],
             "last_updated": None,
-            "base_currency": settings.get("base_currency", "USD")
+            "base_currency": settings.get("base_currency", "USD"),
+            "username": username
         }
         
         # Get last updated time from portfolio file
-        file_path = get_portfolio_file_path()
+        file_path = get_portfolio_file_path(username)
         if os.path.exists(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:

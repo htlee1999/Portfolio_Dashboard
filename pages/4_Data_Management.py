@@ -17,18 +17,39 @@ from app_utils import (
     backup_data,
     export_portfolio_to_csv,
 )
+from auth_utils import init_auth_session, show_user_menu, change_password_form, admin_only, create_user_management_page
+
+# Initialize authentication
+init_auth_session()
+
+# Check authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("🔐 Please log in to access Data Management")
+    st.info("Use the Login page in the sidebar to authenticate")
+    st.stop()
 
 setup_page()
 inject_css()
 init_session_state()
 create_sidebar()
+show_user_menu()
+
+# Handle change password modal
+if st.session_state.get("show_change_password", False):
+    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
+    change_password_form()
+    st.stop()
+
+# Load current user's data
+username = st.session_state.get("username")
 
 st.markdown('<h1 class="main-header">🗄️ Data Management</h1>', unsafe_allow_html=True)
+st.markdown(f"**Managing data for user:** `{username}`")
 
-# Load current data
-portfolio_df = load_portfolio_data()
+# Load current user's data
+portfolio_df = load_portfolio_data(username)
 settings = load_settings()
-stats = get_portfolio_stats()
+stats = get_portfolio_stats(username)
 
 # Tabs for different data management functions
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Portfolio Data", "⚙️ Settings", "📁 File Management", "🔧 JSON Editor", "📈 Statistics"])
@@ -96,10 +117,26 @@ with tab2:
 with tab3:
     st.subheader("File Management")
     
-    # Show file structure
+    # Show user-specific file information
+    st.write(f"**Files for user:** `{username}`")
+    
+    # User's portfolio file
+    portfolio_file = f"data/portfolio_{username}.json"
+    if os.path.exists(portfolio_file):
+        file_size = os.path.getsize(portfolio_file)
+        st.write(f"📄 **Portfolio File:** `portfolio_{username}.json` ({file_size} bytes)")
+        
+        # Show last modified time
+        mod_time = os.path.getmtime(portfolio_file)
+        mod_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M:%S")
+        st.write(f"🕒 **Last Modified:** {mod_date}")
+    else:
+        st.write(f"📄 **Portfolio File:** `portfolio_{username}.json` (not created yet)")
+    
+    # Show all data files
     data_dir = "data"
     if os.path.exists(data_dir):
-        st.write("**Data Directory Structure:**")
+        st.write("\n**All Data Files:**")
         for root, dirs, files in os.walk(data_dir):
             level = root.replace(data_dir, '').count(os.sep)
             indent = ' ' * 2 * level
@@ -108,7 +145,11 @@ with tab3:
             for file in files:
                 file_path = os.path.join(root, file)
                 file_size = os.path.getsize(file_path)
-                st.write(f"{subindent}{file} ({file_size} bytes)")
+                # Highlight user's files
+                if file == f"portfolio_{username}.json":
+                    st.write(f"{subindent}🔹 **{file}** ({file_size} bytes) ← Your portfolio")
+                else:
+                    st.write(f"{subindent}{file} ({file_size} bytes)")
     else:
         st.warning("Data directory does not exist yet.")
     
@@ -137,8 +178,8 @@ with tab4:
     st.subheader("JSON Data Editor")
     
     # Portfolio JSON editor
-    st.write("**Portfolio Data (JSON):**")
-    portfolio_file = "data/portfolio.json"
+    st.write(f"**Portfolio Data (JSON) for user:** `{username}`")
+    portfolio_file = f"data/portfolio_{username}.json"
     
     if os.path.exists(portfolio_file):
         try:
@@ -225,7 +266,7 @@ with tab4:
         st.warning("Settings JSON file not found.")
 
 with tab5:
-    st.subheader("Portfolio Statistics")
+    st.subheader(f"Portfolio Statistics for {username}")
     
     if stats:
         col1, col2 = st.columns(2)
@@ -260,13 +301,20 @@ with tab5:
     else:
         st.info("No statistics available. Add some holdings to see statistics.")
 
+# User Management Section (Admin only)
+if st.session_state.get("user_role") == "admin":
+    st.markdown("---")
+    st.markdown("### 👥 User Management")
+    create_user_management_page()
+
 # Footer
 st.markdown("---")
 st.markdown("**Data Storage Information:**")
 st.info(
-    "📁 **Portfolio Data**: `data/portfolio.json`\n"
-    "⚙️ **Settings**: `data/settings.json`\n"
+    f"📁 **Your Portfolio Data**: `data/portfolio_{username}.json`\n"
+    "⚙️ **Settings**: `data/settings.json` (shared)\n"
     "💾 **Backups**: `data/backups/`\n"
-    "📤 **Exports**: `data/exports/`\n\n"
-    "All data is stored locally in JSON format for easy backup and portability."
+    "📤 **Exports**: `data/exports/`\n"
+    "👥 **Users**: `data/users.json`\n\n"
+    f"Each user has their own portfolio file. Your data is stored in `portfolio_{username}.json`"
 )

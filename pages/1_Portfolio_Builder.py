@@ -20,13 +20,28 @@ from app_utils import (
     get_portfolio_stats,
     backup_data,
 )
+from auth_utils import init_auth_session, show_user_menu, change_password_form
 
+# Initialize authentication
+init_auth_session()
+
+# Check authentication
+if not st.session_state.get("authenticated", False):
+    st.warning("🔐 Please log in to access the Portfolio Builder")
+    st.info("Use the Login page in the sidebar to authenticate")
+    st.stop()
 
 setup_page()
 inject_css()
 init_session_state()
 create_sidebar()
+show_user_menu()
 
+# Handle change password modal
+if st.session_state.get("show_change_password", False):
+    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
+    change_password_form()
+    st.stop()
 
 st.markdown('<h1 class="main-header">📈 Portfolio Builder</h1>', unsafe_allow_html=True)
 

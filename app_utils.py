@@ -84,8 +84,9 @@ def inject_css() -> None:
 def init_session_state() -> None:
     """Initialize shared session state variables if missing."""
     if "portfolio" not in st.session_state:
-        # Load portfolio from persistent storage
-        st.session_state.portfolio = load_portfolio_data()
+        # Load portfolio from persistent storage for current user
+        username = st.session_state.get("username")
+        st.session_state.portfolio = load_portfolio_data(username)
     
     if "base_currency" not in st.session_state:
         # Load settings from persistent storage
@@ -279,7 +280,8 @@ def format_currency(amount: float, currency: str) -> str:
 def save_portfolio_to_storage() -> bool:
     """Save current portfolio to persistent storage."""
     try:
-        return save_portfolio_data(st.session_state.portfolio)
+        username = st.session_state.get("username")
+        return save_portfolio_data(st.session_state.portfolio, username)
     except Exception as e:
         st.error(f"Error saving portfolio: {str(e)}")
         return False
@@ -301,10 +303,11 @@ def add_holding_to_storage(symbol: str, quantity: float, purchase_price: float,
                           purchase_date, currency: str) -> bool:
     """Add a new holding to persistent storage."""
     try:
-        success = add_holding(symbol, quantity, purchase_price, purchase_date, currency)
+        username = st.session_state.get("username")
+        success = add_holding(symbol, quantity, purchase_price, purchase_date, currency, username)
         if success:
             # Reload portfolio from storage
-            st.session_state.portfolio = load_portfolio_data()
+            st.session_state.portfolio = load_portfolio_data(username)
         return success
     except Exception as e:
         st.error(f"Error adding holding: {str(e)}")
@@ -314,10 +317,11 @@ def add_holding_to_storage(symbol: str, quantity: float, purchase_price: float,
 def remove_holding_from_storage(symbol: str) -> bool:
     """Remove a holding from persistent storage."""
     try:
-        success = remove_holding(symbol)
+        username = st.session_state.get("username")
+        success = remove_holding(symbol, username)
         if success:
             # Reload portfolio from storage
-            st.session_state.portfolio = load_portfolio_data()
+            st.session_state.portfolio = load_portfolio_data(username)
         return success
     except Exception as e:
         st.error(f"Error removing holding: {str(e)}")
@@ -327,10 +331,11 @@ def remove_holding_from_storage(symbol: str) -> bool:
 def clear_all_holdings_from_storage() -> bool:
     """Clear all holdings from persistent storage."""
     try:
-        success = clear_all_holdings()
+        username = st.session_state.get("username")
+        success = clear_all_holdings(username)
         if success:
             # Reload portfolio from storage
-            st.session_state.portfolio = load_portfolio_data()
+            st.session_state.portfolio = load_portfolio_data(username)
         return success
     except Exception as e:
         st.error(f"Error clearing holdings: {str(e)}")
