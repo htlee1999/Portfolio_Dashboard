@@ -2,9 +2,8 @@ import streamlit as st
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Optional, Tuple
-import secrets
 
 
 class AuthManager:
@@ -154,6 +153,22 @@ def login_form() -> bool:
                 st.error(message)
                 return False
     
+    # Add Sign Up button below the login form
+    st.markdown("---")
+    st.markdown("### Don't have an account?")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("📝 Sign Up", use_container_width=True, type="secondary"):
+            st.switch_page("pages/0_Sign_Up.py")
+    
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; color: #666; font-size: 0.9rem; padding: 8px;'>
+            Create a new account to access the Portfolio Dashboard
+        </div>
+        """, unsafe_allow_html=True)
+    
     return False
 
 
@@ -267,11 +282,11 @@ def change_password_form() -> bool:
 
 
 def logout():
-    """Logout current user."""
+    """Logout current user and redirect to login page."""
     st.session_state.authenticated = False
     st.session_state.username = None
     st.session_state.user_role = None
-    st.rerun()
+    st.switch_page("Portfolio.py")
 
 
 def require_auth(func):
@@ -289,15 +304,25 @@ def show_user_menu():
     """Show user menu in sidebar."""
     if st.session_state.get("authenticated", False):
         with st.sidebar:
+            # User information
             st.markdown("---")
             st.markdown(f"**Logged in as:** {st.session_state.username}")
             st.markdown(f"**Role:** {st.session_state.user_role}")
             
-            # Change password button
-            if st.button("🔑 Change Password", use_container_width=True):
-                st.session_state.show_change_password = True
+            # User action dropdown at the bottom
+            user_action = st.selectbox(
+                "Select an action:",
+                ["Admin", "💾 Data Management", "📊 Usage Monitoring", "🔑 Change Password", "🚪 Logout"],
+                key="user_action_dropdown"
+            )
             
-            if st.button("🚪 Logout", use_container_width=True):
+            if user_action == "💾 Data Management":
+                st.switch_page("pages/4_Data_Management.py")
+            elif user_action == "📊 Usage Monitoring":
+                st.switch_page("pages/8_Usage_Monitoring.py")
+            elif user_action == "🔑 Change Password":
+                st.session_state.show_change_password = True
+            elif user_action == "🚪 Logout":
                 logout()
 
 

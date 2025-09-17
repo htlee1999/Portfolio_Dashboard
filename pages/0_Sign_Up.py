@@ -1,5 +1,5 @@
 import streamlit as st
-from auth_utils import init_auth_session, login_form, signup_form, show_user_menu, AuthManager
+from auth_utils import init_auth_session, signup_form, show_user_menu
 from app_utils import setup_page, inject_css
 
 # Use the app's setup functions for consistent styling

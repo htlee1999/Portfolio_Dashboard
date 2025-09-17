@@ -5,7 +5,7 @@ import numpy as np
 import requests
 from data_utils import (
     load_portfolio_data, save_portfolio_data, load_settings, save_settings,
-    add_holding, remove_holding, update_holding, clear_all_holdings,
+    add_holding, remove_holding, clear_all_holdings,
     export_portfolio_to_csv, import_portfolio_from_csv, get_portfolio_stats, backup_data
 )
 
@@ -23,13 +23,146 @@ def setup_page() -> None:
             'About': None
         }
     )
+    
+    # Track current page for conditional sidebar content
+    import os
+    current_file = os.path.basename(__file__)
+    if current_file == "Portfolio.py":
+        st.session_state.current_page = "Portfolio.py"
+    else:
+        # For pages in the pages/ directory
+        st.session_state.current_page = f"pages/{current_file}"
+
+
+def create_custom_navigation():
+    """Create custom navigation based on authentication status."""
+    is_authenticated = st.session_state.get("authenticated", False)
+    
+    # Custom CSS for navigation - sidebar spacing fixes
+    st.markdown("""
+    <style>
+    /* Remove default margins and padding to eliminate gap above navigation */
+    body {
+        margin: 0;
+        padding: 0;
+    }
+    
+    /* Remove gap above sidebar header */
+    [data-testid="stSidebarHeader"] {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+    
+    .st-emotion-cache-595tnf {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+    
+    /* Remove gaps from markdown containers */
+    .stMarkdown {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .stMarkdownContainer {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Remove gaps from element containers */
+    .stElementContainer {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Remove gaps from specific emotion cache classes */
+    .st-emotion-cache-v3w3zg {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .st-emotion-cache-115zvt5 {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .eertqu00 {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .e1g8wfdw0 {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Remove all possible gaps from sidebar elements */
+    .css-1d391kg {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .css-1cypcdb {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Target any element with custom-nav class specifically */
+    div.custom-nav {
+        margin: 0 !important;
+        padding: 5px 0 !important;
+    }
+    
+    /* Remove gaps from all div elements in sidebar */
+    .sidebar .stMarkdown div {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Ensure main content area adjusts properly */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-left: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create navigation based on authentication status
+    with st.sidebar:
+        # Create the header first
+        st.markdown('<h3 class="nav-header">📊 Portfolio Dashboard</h3>', unsafe_allow_html=True)
+        
+        if is_authenticated:
+            # Authenticated user navigation
+            pages = [
+                ("🏠 Portfolio", "Portfolio.py"),
+                ("📈 Portfolio Builder", "pages/1_Portfolio_Builder.py"),
+                ("📊 Dashboard Overview", "pages/2_Dashboard_Overview.py"),
+                ("🔍 Detailed Analysis", "pages/3_Detailed_Analysis.py"),
+                ("📈 Technical Analysis", "pages/5_Technical_Analysis.py"),
+                ("📋 Fundamental Analysis", "pages/6_Fundamental_Analysis.py"),
+                ("🎯 Investment Assessment", "pages/7_Investment_Assessment.py"),
+            ]
+            
+            for label, page in pages:
+                if st.button(label, key=f"nav_{page}", use_container_width=True):
+                    st.switch_page(page)
+        else:
+            # Non-authenticated user navigation
+            pages = [
+                ("🏠 Portfolio", "Portfolio.py"),
+                ("📝 Sign Up", "pages/0_Sign_Up.py"),
+            ]
+            
+            for label, page in pages:
+                if st.button(label, key=f"nav_{page}", use_container_width=True):
+                    st.switch_page(page)
 
 
 def inject_css() -> None:
     """Inject custom CSS for consistent styling across pages."""
-    st.markdown(
-        """
-<style>
+    st.markdown("""
+    <style>
     .main-header {
         font-size: 3rem;
         font-weight: bold;
@@ -49,36 +182,40 @@ def inject_css() -> None:
     .negative {
         color: #ff1744;
     }
-    
-    
-    /* Add title above the default Streamlit navigation */
-    [data-testid="stSidebarNav"]::before {
-        content: "📊 Portfolio Dashboard";
-        font-size: 24px !important;
-        font-weight: bold !important;
-        color: #2c3e50 !important;
-        margin-left: 20px !important;
-        margin-top: 20px !important;
-        margin-bottom: 20px !important;
-        display: block !important;
-        padding-bottom: 10px !important;
-        border-bottom: 2px solid #3498db !important;
+    .nav-header {
+        color: #2c3e50;
+        margin: 0 0 10px 0;
+        font-size: 20px;
+        text-align: center;
+        padding: 10px 0;
+        border-bottom: 2px solid #3498db;
     }
-    
-    /* Hide the sidebar title we added with st.sidebar.title() */
-    [data-testid="stSidebar"] h1 {
-        display: none !important;
+    .nav-item {
+        display: block;
+        padding: 12px 20px;
+        margin: 5px 0;
+        color: #1f77b4;
+        text-decoration: none;
+        border-radius: 8px;
+        transition: all 0.2s;
+        font-weight: 500;
     }
-    
-    /* Ensure main content area adjusts properly */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-left: 2rem;
+    .nav-item:hover {
+        background-color: #f0f2f6;
+        color: #0d47a1;
     }
-</style>
-        """,
-        unsafe_allow_html=True,
-    )
+    .nav-item.active {
+        background-color: #e3f2fd;
+        color: #0d47a1;
+        font-weight: bold;
+    }
+    .nav-divider {
+        height: 1px;
+        background-color: #e0e0e0;
+        margin: 15px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def init_session_state() -> None:
@@ -99,8 +236,19 @@ def init_session_state() -> None:
 
 def create_sidebar() -> None:
     """Create consistent sidebar navigation across all pages."""
-    # Title is added via CSS above the default navigation
-    pass
+    create_custom_navigation()
+
+
+def handle_change_password_modal() -> bool:
+    """Handle the change password modal if it's shown."""
+    if st.session_state.get("show_change_password", False):
+        st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
+        from auth_utils import change_password_form
+        change_password_form()
+        return True
+    return False
+
+
 
 
 @st.cache_data

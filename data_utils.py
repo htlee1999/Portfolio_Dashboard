@@ -178,35 +178,6 @@ def remove_holding(symbol: str, username: str = None) -> bool:
         return False
 
 
-def update_holding(symbol: str, quantity: float = None, purchase_price: float = None,
-                  purchase_date: datetime.date = None, currency: str = None) -> bool:
-    """Update an existing holding in the portfolio."""
-    try:
-        # Load current portfolio
-        portfolio_df = load_portfolio_data()
-        
-        # Find the holding
-        mask = portfolio_df["Symbol"] == symbol.upper()
-        if not mask.any():
-            st.error(f"Holding {symbol} not found")
-            return False
-        
-        # Update fields if provided
-        if quantity is not None:
-            portfolio_df.loc[mask, "Quantity"] = quantity
-        if purchase_price is not None:
-            portfolio_df.loc[mask, "Purchase_Price"] = purchase_price
-        if purchase_date is not None:
-            portfolio_df.loc[mask, "Purchase_Date"] = purchase_date
-        if currency is not None:
-            portfolio_df.loc[mask, "Currency"] = currency
-        
-        # Save updated portfolio
-        return save_portfolio_data(portfolio_df)
-        
-    except Exception as e:
-        st.error(f"Error updating holding: {str(e)}")
-        return False
 
 
 def clear_all_holdings(username: str = None) -> bool:

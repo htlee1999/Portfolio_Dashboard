@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, calculate_portfolio_metrics, format_currency, save_settings_to_storage
+from app_utils import setup_page, inject_css, init_session_state, create_sidebar, calculate_portfolio_metrics, format_currency, save_settings_to_storage, handle_change_password_modal
 from data_utils import load_portfolio_data
-from auth_utils import init_auth_session, require_auth, show_user_menu, logout, change_password_form
+from auth_utils import init_auth_session, show_user_menu
 
 # Initialize authentication
 init_auth_session()
@@ -31,9 +31,7 @@ if st.session_state.get("authenticated", False):
     st.session_state.portfolio = load_portfolio_data(username)
 
 # Handle change password modal
-if st.session_state.get("show_change_password", False):
-    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
-    change_password_form()
+if handle_change_password_modal():
     st.stop()
 
 st.markdown('<h1 class="main-header">Portfolio Analysis Dashboard</h1>', unsafe_allow_html=True)

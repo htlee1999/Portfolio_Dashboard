@@ -10,8 +10,9 @@ from app_utils import (
     calculate_portfolio_metrics,
     format_currency,
     save_settings_to_storage,
+    handle_change_password_modal,
 )
-from auth_utils import init_auth_session, show_user_menu, change_password_form
+from auth_utils import init_auth_session, show_user_menu
 
 # Initialize authentication
 init_auth_session()
@@ -29,9 +30,7 @@ create_sidebar()
 show_user_menu()
 
 # Handle change password modal
-if st.session_state.get("show_change_password", False):
-    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
-    change_password_form()
+if handle_change_password_modal():
     st.stop()
 
 st.markdown('<h1 class="main-header">📊 Portfolio Dashboard</h1>', unsafe_allow_html=True)

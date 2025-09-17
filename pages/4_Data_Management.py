@@ -16,8 +16,9 @@ from app_utils import (
     get_portfolio_stats,
     backup_data,
     export_portfolio_to_csv,
+    handle_change_password_modal,
 )
-from auth_utils import init_auth_session, show_user_menu, change_password_form, admin_only, create_user_management_page
+from auth_utils import init_auth_session, show_user_menu, admin_only, create_user_management_page
 
 # Initialize authentication
 init_auth_session()
@@ -35,9 +36,7 @@ create_sidebar()
 show_user_menu()
 
 # Handle change password modal
-if st.session_state.get("show_change_password", False):
-    st.markdown('<h1 class="main-header">🔑 Change Password</h1>', unsafe_allow_html=True)
-    change_password_form()
+if handle_change_password_modal():
     st.stop()
 
 # Load current user's data
