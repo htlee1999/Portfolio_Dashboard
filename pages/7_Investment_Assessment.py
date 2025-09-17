@@ -5,8 +5,9 @@ import yfinance as yf
 import os
 from typing import Dict, Any, Optional
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data
+from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data, get_current_price
 from auth_utils import show_user_menu
+from data_utils import load_portfolio_data
 
 # Import analysis classes from other pages
 # We'll define simplified versions of the analysis classes here
@@ -236,6 +237,58 @@ class FundamentalAnalysis:
         return ratios
 
 
+def get_portfolio_price_context(symbol: str, username: str = None) -> Dict[str, Any]:
+    """
+    Get portfolio price context for a specific symbol.
+    
+    Args:
+        symbol (str): Stock ticker symbol
+        username (str): Username for portfolio data
+        
+    Returns:
+        Dict containing portfolio price context or None if not found
+    """
+    try:
+        portfolio_df = load_portfolio_data(username)
+        if portfolio_df.empty:
+            return None
+        
+        # Filter portfolio for the specific symbol
+        symbol_holdings = portfolio_df[portfolio_df['Symbol'] == symbol.upper()]
+        if symbol_holdings.empty:
+            return None
+        
+        # Calculate weighted average purchase price
+        total_quantity = symbol_holdings['Quantity'].sum()
+        total_invested_value = (symbol_holdings['Quantity'] * symbol_holdings['Purchase_Price']).sum()
+        average_purchase_price = total_invested_value / total_quantity if total_quantity > 0 else 0
+        
+        # Get current price
+        current_price = get_current_price(symbol)
+        
+        # Calculate position metrics
+        current_value = total_quantity * current_price if current_price else 0
+        unrealized_gain_loss = current_value - total_invested_value
+        unrealized_gain_loss_pct = (unrealized_gain_loss / total_invested_value) * 100 if total_invested_value > 0 else 0
+        
+        return {
+            'symbol': symbol,
+            'total_quantity': total_quantity,
+            'average_purchase_price': average_purchase_price,
+            'total_invested_value': total_invested_value,
+            'current_price': current_price,
+            'current_value': current_value,
+            'unrealized_gain_loss': unrealized_gain_loss,
+            'unrealized_gain_loss_pct': unrealized_gain_loss_pct,
+            'holdings_count': len(symbol_holdings),
+            'currency': symbol_holdings['Currency'].iloc[0] if len(symbol_holdings) > 0 else 'USD'
+        }
+        
+    except Exception as e:
+        st.error(f"Error getting portfolio price context for {symbol}: {str(e)}")
+        return None
+
+
 class InvestmentAssessment:
     """Comprehensive investment assessment combining technical and fundamental analysis."""
     
@@ -251,13 +304,15 @@ class InvestmentAssessment:
         self.fundamental_analysis = None
         self.price_data = None
         self.assessment_result = None
+        self.portfolio_context = None
         
-    def run_analysis(self, period: str = "1y") -> bool:
+    def run_analysis(self, period: str = "1y", username: str = None) -> bool:
         """
         Run both technical and fundamental analysis.
         
         Args:
             period (str): Time period for technical analysis
+            username (str): Username for portfolio data
             
         Returns:
             bool: True if analysis completed successfully
@@ -277,6 +332,9 @@ class InvestmentAssessment:
             if not self.fundamental_analysis.fetch_data():
                 st.error(f"Could not fetch fundamental data for {self.symbol}")
                 return False
+            
+            # Get portfolio price context
+            self.portfolio_context = get_portfolio_price_context(self.symbol, username)
             
             return True
             
@@ -352,13 +410,14 @@ class InvestmentAssessment:
             'calculated_ratios': ratios
         }
     
-    def generate_ai_assessment(self, technical_summary: Dict, fundamental_summary: Dict) -> Optional[Dict[str, Any]]:
+    def generate_ai_assessment(self, technical_summary: Dict, fundamental_summary: Dict, portfolio_context: Dict = None) -> Optional[Dict[str, Any]]:
         """
         Generate AI-powered investment assessment using Google Gemini 2.5 Flash API.
         
         Args:
             technical_summary: Technical analysis summary
             fundamental_summary: Fundamental analysis summary
+            portfolio_context: Portfolio price context (if available)
             
         Returns:
             Dict containing AI assessment or None if failed
@@ -405,6 +464,18 @@ class InvestmentAssessment:
             }
             
             # Create the prompt for the AI
+            portfolio_section = ""
+            if portfolio_context:
+                portfolio_section = f"""
+            PORTFOLIO CONTEXT (Current Position):
+            - Average Purchase Price: ${portfolio_context.get('average_purchase_price', 0):.2f}
+            - Total Quantity Held: {portfolio_context.get('total_quantity', 0):.2f} shares
+            - Total Invested Value: ${portfolio_context.get('total_invested_value', 0):.2f}
+            - Current Position Value: ${portfolio_context.get('current_value', 0):.2f}
+            - Unrealized Gain/Loss: ${portfolio_context.get('unrealized_gain_loss', 0):.2f} ({portfolio_context.get('unrealized_gain_loss_pct', 0):.2f}%)
+            - Number of Holdings: {portfolio_context.get('holdings_count', 0)}
+            """
+            
             prompt = f"""
             As a professional financial analyst, please analyze the following stock data for {self.symbol} and provide a comprehensive investment assessment.
 
@@ -424,16 +495,17 @@ class InvestmentAssessment:
             - ROE: {analysis_data['fundamental_analysis']['roe']:.2f}
             - Revenue Growth: {analysis_data['fundamental_analysis']['revenue_growth']:.2f}%
             - Profit Margin: {analysis_data['fundamental_analysis']['profit_margin']:.2f}%
-            - Analyst Recommendation: {analysis_data['fundamental_analysis']['analyst_recommendation']}
+            - Analyst Recommendation: {analysis_data['fundamental_analysis']['analyst_recommendation']}{portfolio_section}
 
             Please provide:
-            1. Overall recommendation (BUY, SELL, or HOLD)
+            1. Overall recommendation (BUY, SELL, or HOLD) - consider the current portfolio position and average purchase price
             2. Confidence level (1-10)
             3. Key strengths
             4. Key risks
             5. Price target (if applicable)
             6. Time horizon for the recommendation
-            7. Brief reasoning for the recommendation
+            7. Brief reasoning for the recommendation, including consideration of the current portfolio position
+            8. Specific advice on whether to add to position, reduce position, or hold current position
 
             Format your response as a structured analysis suitable for investment decision-making.
             """
@@ -534,6 +606,30 @@ class InvestmentAssessment:
         
         st.markdown("---")
         
+        # Display portfolio context if available
+        if self.portfolio_context:
+            st.subheader("📊 Portfolio Position Context")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Average Purchase Price", f"${self.portfolio_context.get('average_purchase_price', 0):.2f}")
+            with col2:
+                st.metric("Total Quantity", f"{self.portfolio_context.get('total_quantity', 0):.2f} shares")
+            with col3:
+                unrealized_pct = self.portfolio_context.get('unrealized_gain_loss_pct', 0)
+                st.metric("Unrealized P&L", f"{unrealized_pct:.2f}%", delta=f"{unrealized_pct:.2f}%")
+            with col4:
+                st.metric("Holdings Count", f"{self.portfolio_context.get('holdings_count', 0)}")
+            
+            # Additional portfolio metrics
+            col5, col6 = st.columns(2)
+            with col5:
+                st.metric("Total Invested Value", f"${self.portfolio_context.get('total_invested_value', 0):,.2f}")
+            with col6:
+                st.metric("Current Position Value", f"${self.portfolio_context.get('current_value', 0):,.2f}")
+            
+            st.markdown("---")
+        
         # Create tabs for different analysis views
         tab1, tab2, tab3, tab4 = st.tabs(["AI Assessment", "Technical Summary", "Fundamental Summary", "Combined Analysis"])
         
@@ -542,7 +638,7 @@ class InvestmentAssessment:
             
             if st.button("Generate AI Assessment", type="primary"):
                 with st.spinner("Generating AI assessment..."):
-                    self.assessment_result = self.generate_ai_assessment(technical_summary, fundamental_summary)
+                    self.assessment_result = self.generate_ai_assessment(technical_summary, fundamental_summary, self.portfolio_context)
             
             if self.assessment_result:
                 # Display recommendation with color coding
@@ -817,7 +913,8 @@ def main():
             
         with st.spinner(f"Running comprehensive assessment for {symbol}..."):
             assessment = InvestmentAssessment(symbol)
-            if assessment.run_analysis(period):
+            username = st.session_state.get("username")
+            if assessment.run_analysis(period, username):
                 st.session_state.assessment_data = assessment
                 st.success(f"Successfully completed assessment for {symbol}")
             else:
