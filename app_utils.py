@@ -176,6 +176,7 @@ def create_custom_navigation():
                 ("📈 Technical Analysis", "pages/5_Technical_Analysis.py"),
                 ("📋 Fundamental Analysis", "pages/6_Fundamental_Analysis.py"),
                 ("🎯 Investment Assessment", "pages/7_Investment_Assessment.py"),
+                ("🤖 Predictive Analysis", "pages/9_Predictive_Analysis.py"),
             ]
             
             for label, page in pages:
@@ -277,7 +278,8 @@ def create_stock_selection_sidebar() -> None:
     analysis_pages = [
         "pages/5_Technical_Analysis.py",
         "pages/6_Fundamental_Analysis.py", 
-        "pages/7_Investment_Assessment.py"
+        "pages/7_Investment_Assessment.py",
+        "pages/9_Predictive_Analysis.py"
     ]
     
     # Method 2: Check if we're in an analysis context by looking at session state keys
@@ -286,9 +288,11 @@ def create_stock_selection_sidebar() -> None:
         'ta_data' in st.session_state or
         'fundamental_analysis' in st.session_state or
         'assessment_data' in st.session_state or
+        'pa_results' in st.session_state or
         'quick_analyze' in st.session_state or
         'quick_fundamental' in st.session_state or
-        'quick_assess' in st.session_state
+        'quick_assess' in st.session_state or
+        'quick_predictive' in st.session_state
     )
     
     # Debug information (uncomment for debugging)
@@ -340,6 +344,11 @@ def create_stock_selection_sidebar() -> None:
             elif current_page == "pages/7_Investment_Assessment.py" or 'assessment_data' in st.session_state:
                 if st.button("🎯 Run Investment Assessment", key="sidebar_investment_assess", use_container_width=True):
                     st.session_state.quick_assess = selected_symbol
+                    st.rerun()
+            
+            elif current_page == "pages/9_Predictive_Analysis.py" or 'pa_results' in st.session_state:
+                if st.button("🤖 Run Predictive Analysis", key="sidebar_predictive_analysis", use_container_width=True):
+                    st.session_state.quick_predictive = selected_symbol
                     st.rerun()
             
             # Generic fallback button

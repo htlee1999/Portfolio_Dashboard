@@ -459,6 +459,140 @@ def main():
     
     st.markdown('<h1 class="main-header">📈 Technical Analysis</h1>', unsafe_allow_html=True)
     
+    # Add explanation section
+    with st.expander("📚 Technical Analysis Guide - How to Read Each Indicator", expanded=False):
+        st.markdown("""
+        ### Understanding Technical Analysis Indicators
+        
+        Technical analysis uses mathematical calculations based on price and volume data to predict future price movements. 
+        Here's how to interpret each indicator in your analysis:
+        """)
+        
+        # RSI Explanation
+        st.markdown("""
+        #### 1. RSI (Relative Strength Index) 📊
+        **What it measures:** Speed and magnitude of price changes to identify overbought/oversold conditions.
+        
+        **How to read:**
+        - **Above 70:** Overbought (price may be too high) 🔴
+        - **Below 30:** Oversold (price may be too low) 🟢
+        - **30-70:** Neutral zone (normal trading range) ⚪
+        
+        **Trading signals:**
+        - **Buy opportunity:** RSI below 30 (potential bounce)
+        - **Sell opportunity:** RSI above 70 (potential pullback)
+        - **Warning:** RSI staying in extreme zones for extended periods
+        """)
+        
+        # MACD Explanation
+        st.markdown("""
+        #### 2. MACD (Moving Average Convergence Divergence) 📈
+        **What it measures:** Relationship between two moving averages to identify momentum changes.
+        
+        **Components:**
+        - **MACD Line:** 12-day EMA minus 26-day EMA
+        - **Signal Line:** 9-day EMA of MACD line
+        - **Histogram:** Difference between MACD and Signal lines
+        
+        **How to read:**
+        - **MACD > Signal:** Bullish momentum 🟢
+        - **MACD < Signal:** Bearish momentum 🔴
+        - **MACD crosses above Signal:** Buy signal 📈
+        - **MACD crosses below Signal:** Sell signal 📉
+        - **Histogram above zero:** Increasing bullish momentum
+        - **Histogram below zero:** Increasing bearish momentum
+        """)
+        
+        # Bollinger Bands Explanation
+        st.markdown("""
+        #### 3. Bollinger Bands 📏
+        **What it measures:** Price volatility and potential support/resistance levels.
+        
+        **Components:**
+        - **Upper Band:** 20-day SMA + 2 standard deviations
+        - **Middle Band:** 20-day Simple Moving Average
+        - **Lower Band:** 20-day SMA - 2 standard deviations
+        
+        **How to read:**
+        - **Price touches upper band:** Potentially overbought 🔴
+        - **Price touches lower band:** Potentially oversold 🟢
+        - **Bands squeeze together:** Low volatility (breakout coming) ⚡
+        - **Bands expand:** High volatility 📊
+        - **Price between bands:** Normal trading range ⚪
+        
+        **Trading signals:**
+        - **Buy:** Price bouncing off lower band
+        - **Sell:** Price touching upper band
+        - **Watch:** Band squeeze (potential breakout)
+        """)
+        
+        # Moving Averages Explanation
+        st.markdown("""
+        #### 4. Moving Averages 📊
+        **What it measures:** Trend direction and strength by smoothing price data.
+        
+        **Types:**
+        - **SMA (Simple Moving Average):** Equal weight to all periods
+        - **EMA (Exponential Moving Average):** More weight to recent prices
+        
+        **How to read:**
+        - **Price above MA:** Uptrend 🟢
+        - **Price below MA:** Downtrend 🔴
+        - **Shorter MA above longer MA:** Bullish trend (Golden Cross) 📈
+        - **Shorter MA below longer MA:** Bearish trend (Death Cross) 📉
+        - **MA slope upward:** Strengthening trend
+        - **MA slope downward:** Weakening trend
+        
+        **Trading signals:**
+        - **Strong buy:** Price above multiple MAs + Golden Cross
+        - **Strong sell:** Price below multiple MAs + Death Cross
+        """)
+        
+        # OBV Explanation
+        st.markdown("""
+        #### 5. OBV (On-Balance Volume) 📊
+        **What it measures:** Buying and selling pressure by tracking volume flow.
+        
+        **How it works:**
+        - Adds volume on up days
+        - Subtracts volume on down days
+        - Shows cumulative volume flow
+        
+        **How to read:**
+        - **OBV rising:** Buying pressure increasing 🟢
+        - **OBV falling:** Selling pressure increasing 🔴
+        - **OBV above its EMA:** Bullish momentum 📈
+        - **OBV below its EMA:** Bearish momentum 📉
+        - **OBV diverging from price:** Potential trend reversal ⚠️
+        
+        **Trading signals:**
+        - **Confirms uptrend:** OBV rising with price
+        - **Warning sign:** OBV falling while price rises (bearish divergence)
+        """)
+        
+        # Trading Signals Guide
+        st.markdown("""
+        ### 🎯 Key Trading Signals to Watch For
+        
+        **Strong Buy Signal:** 
+        - RSI < 30 + MACD bullish crossover + Price near lower Bollinger Band
+        
+        **Strong Sell Signal:** 
+        - RSI > 70 + MACD bearish crossover + Price near upper Bollinger Band
+        
+        **Trend Confirmation:** 
+        - Price above multiple MAs + OBV rising + MACD above signal line
+        
+        **Reversal Warning:** 
+        - Divergence between price and OBV + RSI in extreme zones
+        
+        ### ⚠️ Important Notes
+        - **Never rely on a single indicator** - Always look for confirmation across multiple indicators
+        - **Consider market context** - Indicators work better in trending vs. sideways markets
+        - **Use proper risk management** - Set stop losses and position sizes appropriately
+        - **Practice with paper trading** before using real money
+        """)
+    
     # Get selected symbol from sidebar
     symbol = st.session_state.get("selected_stock", "AAPL")
     
@@ -578,6 +712,37 @@ def main():
         
         # Get signals
         signals = ta.get_signals()
+        
+        # Quick Reference Guide
+        with st.expander("🔍 Quick Reference - What Do These Signals Mean?", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **RSI Signals:**
+                - 🔴 Overbought (>70): Consider selling
+                - 🟢 Oversold (<30): Consider buying
+                - ⚪ Neutral (30-70): Normal range
+                
+                **MACD Signals:**
+                - 🟢 MACD > Signal: Bullish momentum
+                - 🔴 MACD < Signal: Bearish momentum
+                - 📈 Crossover up: Buy signal
+                - 📉 Crossover down: Sell signal
+                """)
+            
+            with col2:
+                st.markdown("""
+                **Bollinger Bands:**
+                - 🔴 Above upper band: Overbought
+                - 🟢 Below lower band: Oversold
+                - ⚡ Squeeze: Low volatility (breakout coming)
+                
+                **Moving Averages:**
+                - 🟢 Price above MAs: Uptrend
+                - 🔴 Price below MAs: Downtrend
+                - 📈 Golden Cross: Strong buy signal
+                """)
         
         # Display current signals
         st.subheader("Current Signals")
