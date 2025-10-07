@@ -229,5 +229,3 @@ st.info(f"📁 Portfolio data is stored in: `data/portfolio.json`\n"
         f"⚙️ Settings are stored in: `data/settings.json`\n"
         f"💾 Backups are stored in: `data/backups/`\n"
         f"📤 Exports are stored in: `data/exports/`")
-
-

@@ -843,47 +843,37 @@ def main():
         st.info("Use the Login page in the sidebar to authenticate")
         return
     
-    # Main page interface for symbol selection
+    # Main page interface
     st.markdown('<h1 class="main-header">🎯 Investment Assessment</h1>', unsafe_allow_html=True)
     
-    # Get symbols from portfolio or allow manual input
-    portfolio = st.session_state.get("portfolio", pd.DataFrame())
-    if not portfolio.empty:
-        portfolio_symbols = portfolio['Symbol'].unique().tolist()
-        symbol_options = portfolio_symbols + ["Custom Symbol"]
-    else:
-        symbol_options = ["Custom Symbol"]
+    # Get selected symbol from sidebar
+    symbol = st.session_state.get("selected_stock", "AAPL")
     
-    # Handle quick analyze from portfolio buttons
+    # Handle quick assess from sidebar button
     if 'quick_assess' in st.session_state:
         symbol = st.session_state.quick_assess
         del st.session_state.quick_assess  # Clear the quick assess flag
         # Automatically trigger analysis
         st.session_state.auto_assess = True
-    else:
-        # Create columns for symbol selection
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            selected_option = st.selectbox("Select Symbol", symbol_options)
-            
-            if selected_option == "Custom Symbol":
-                symbol = st.text_input("Enter Stock Symbol", value="AAPL").upper()
-            else:
-                symbol = selected_option
-        
-        with col2:
-            # Time period selection
-            period_options = {
-                "1 Month": "1mo",
-                "3 Months": "3mo", 
-                "6 Months": "6mo",
-                "1 Year": "1y",
-                "2 Years": "2y",
-                "5 Years": "5y"
-            }
-            selected_period = st.selectbox("Time Period", list(period_options.keys()))
-            period = period_options[selected_period]
+    
+    # Analysis settings
+    st.subheader("Analysis Settings")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.info(f"**Selected Stock:** {symbol}")
+    with col2:
+        # Time period selection
+        period_options = {
+            "1 Month": "1mo",
+            "3 Months": "3mo", 
+            "6 Months": "6mo",
+            "1 Year": "1y",
+            "2 Years": "2y",
+            "5 Years": "5y"
+        }
+        selected_period = st.selectbox("Time Period", list(period_options.keys()))
+        period = period_options[selected_period]
     
     # Google Gemini API setup check
     if not GEMINI_AVAILABLE:
@@ -928,19 +918,7 @@ def main():
         assessment.create_assessment_dashboard()
     
     else:
-        st.info("👆 Select a symbol and click 'Run Assessment' to begin comprehensive analysis")
-        
-        # Show portfolio symbols if available
-        if not portfolio.empty:
-            st.subheader("Your Portfolio Symbols")
-            st.write("Quick access to assess stocks in your portfolio:")
-            
-            cols = st.columns(min(len(portfolio_symbols), 4))
-            for i, sym in enumerate(portfolio_symbols):
-                with cols[i % 4]:
-                    if st.button(f"Assess {sym}", key=f"assess_{sym}"):
-                        st.session_state.quick_assess = sym
-                        st.rerun()
+        st.info("👆 Select a stock from the sidebar and click 'Run Assessment' to begin comprehensive analysis")
     
     # Footer
     st.markdown("---")
@@ -948,6 +926,7 @@ def main():
         """
         <div style='text-align: center; color: gray;'>
             Investment Assessment powered by Technical Analysis, Fundamental Analysis, and AI | 
+            Select stocks from the sidebar to assess | 
             Data is delayed and for informational purposes only
         </div>
         """, 

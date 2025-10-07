@@ -428,12 +428,22 @@ def main():
     
     st.write("Analyze company fundamentals including financial statements, ratios, and key metrics.")
     
-    # Stock symbol input
-    col1, col2 = st.columns([1, 3])
+    # Get selected symbol from sidebar
+    symbol = st.session_state.get("selected_stock", "AAPL")
     
+    # Handle quick analyze from sidebar button
+    if 'quick_fundamental' in st.session_state:
+        symbol = st.session_state.quick_fundamental
+        del st.session_state.quick_fundamental  # Clear the quick analyze flag
+        # Automatically trigger analysis
+        st.session_state.auto_fundamental = True
+    
+    # Analysis settings
+    st.subheader("Analysis Settings")
+    
+    col1, col2 = st.columns([1, 1])
     with col1:
-        symbol = st.text_input("Enter Stock Symbol", value="AAPL", help="Enter a valid stock ticker symbol (e.g., AAPL, MSFT, GOOGL)")
-    
+        st.info(f"**Selected Stock:** {symbol}")
     with col2:
         if st.button("Analyze", type="primary"):
             if symbol:
@@ -445,7 +455,20 @@ def main():
                     else:
                         st.error(f"Failed to load data for {symbol}")
             else:
-                st.warning("Please enter a stock symbol")
+                st.warning("Please select a stock from the sidebar")
+    
+    # Auto analyze if triggered from sidebar
+    auto_fundamental = st.session_state.get('auto_fundamental', False)
+    if auto_fundamental:
+        del st.session_state.auto_fundamental  # Clear the auto analyze flag
+        if symbol:
+            with st.spinner(f"Fetching fundamental data for {symbol}..."):
+                analysis = FundamentalAnalysis(symbol)
+                if analysis.fetch_data():
+                    st.session_state.fundamental_analysis = analysis
+                    st.success(f"Successfully loaded data for {symbol}")
+                else:
+                    st.error(f"Failed to load data for {symbol}")
     
     # Display analysis if available
     if hasattr(st.session_state, 'fundamental_analysis') and st.session_state.fundamental_analysis:
@@ -486,6 +509,7 @@ def main():
         """
         <div style='text-align: center; color: gray;'>
             Fundamental Analysis powered by Yahoo Finance API | 
+            Select stocks from the sidebar to analyze | 
             Data is delayed and for informational purposes only
         </div>
         """, 

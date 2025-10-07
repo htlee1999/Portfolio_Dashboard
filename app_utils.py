@@ -25,13 +25,23 @@ def setup_page() -> None:
     )
     
     # Track current page for conditional sidebar content
+    import inspect
     import os
-    current_file = os.path.basename(__file__)
-    if current_file == "Portfolio.py":
-        st.session_state.current_page = "Portfolio.py"
+    
+    # Get the calling frame to determine which page is calling this function
+    frame = inspect.currentframe().f_back
+    calling_file = frame.f_globals.get('__file__', '')
+    
+    if calling_file:
+        current_file = os.path.basename(calling_file)
+        if current_file == "Portfolio.py":
+            st.session_state.current_page = "Portfolio.py"
+        else:
+            # For pages in the pages/ directory
+            st.session_state.current_page = f"pages/{current_file}"
     else:
-        # For pages in the pages/ directory
-        st.session_state.current_page = f"pages/{current_file}"
+        # Fallback if we can't determine the calling file
+        st.session_state.current_page = "unknown"
 
 
 def create_custom_navigation():
@@ -124,6 +134,31 @@ def create_custom_navigation():
         padding-top: 2rem;
         padding-left: 2rem;
     }
+    
+    /* Hide Streamlit's default navigation elements */
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
+    /* Hide any default Streamlit navigation that might appear */
+    .stApp > div:first-child > div:first-child > div:first-child {
+        display: none !important;
+    }
+    
+    /* Hide default sidebar navigation elements */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
+    }
+    
+    /* Hide any default page navigation */
+    .stApp > div:first-child > div:first-child {
+        display: none !important;
+    }
+    
+    /* Ensure our custom sidebar is visible */
+    [data-testid="stSidebar"] {
+        display: block !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -135,9 +170,8 @@ def create_custom_navigation():
         if is_authenticated:
             # Authenticated user navigation
             pages = [
-                ("🏠 Portfolio", "Portfolio.py"),
+                ("🏠 Portfolio Overview", "pages/1_Portfolio_Overview.py"),
                 ("📈 Portfolio Builder", "pages/1_Portfolio_Builder.py"),
-                ("📊 Dashboard Overview", "pages/2_Dashboard_Overview.py"),
                 ("🔍 Detailed Analysis", "pages/3_Detailed_Analysis.py"),
                 ("📈 Technical Analysis", "pages/5_Technical_Analysis.py"),
                 ("📋 Fundamental Analysis", "pages/6_Fundamental_Analysis.py"),
@@ -234,9 +268,91 @@ def init_session_state() -> None:
         st.session_state.data_loaded = True
 
 
+def create_stock_selection_sidebar() -> None:
+    """Create stock selection sidebar for analysis pages."""
+    # Check if we're on an analysis page using multiple methods
+    current_page = st.session_state.get("current_page", "")
+    
+    # Method 1: Check current_page session state
+    analysis_pages = [
+        "pages/5_Technical_Analysis.py",
+        "pages/6_Fundamental_Analysis.py", 
+        "pages/7_Investment_Assessment.py"
+    ]
+    
+    # Method 2: Check if we're in an analysis context by looking at session state keys
+    is_analysis_page = (
+        current_page in analysis_pages or
+        'ta_data' in st.session_state or
+        'fundamental_analysis' in st.session_state or
+        'assessment_data' in st.session_state or
+        'quick_analyze' in st.session_state or
+        'quick_fundamental' in st.session_state or
+        'quick_assess' in st.session_state
+    )
+    
+    # Debug information (uncomment for debugging)
+    # with st.sidebar:
+    #     st.write(f"Debug - Current page: {current_page}")
+    #     st.write(f"Debug - Is analysis page: {is_analysis_page}")
+    #     st.write(f"Debug - Session keys: {list(st.session_state.keys())}")
+    
+    if is_analysis_page:
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 📈 Stock Selection")
+            
+            # Get symbols from portfolio or allow manual input
+            portfolio = st.session_state.get("portfolio", pd.DataFrame())
+            if not portfolio.empty:
+                portfolio_symbols = portfolio['Symbol'].unique().tolist()
+                symbol_options = portfolio_symbols + ["Custom Symbol"]
+            else:
+                symbol_options = ["Custom Symbol"]
+            
+            # Stock selection
+            selected_option = st.selectbox("Select Stock", symbol_options, key="sidebar_stock_select")
+            
+            if selected_option == "Custom Symbol":
+                custom_symbol = st.text_input("Enter Stock Symbol", value="AAPL", key="sidebar_custom_symbol").upper()
+                selected_symbol = custom_symbol
+            else:
+                selected_symbol = selected_option
+            
+            # Store selected symbol in session state
+            st.session_state.selected_stock = selected_symbol
+            
+            # Show current selection
+            if selected_symbol:
+                st.success(f"✅ Selected: **{selected_symbol}**")
+            
+            # Quick action buttons for analysis pages
+            if current_page == "pages/5_Technical_Analysis.py" or 'ta_data' in st.session_state:
+                if st.button("📈 Run Technical Analysis", key="sidebar_tech_analysis", use_container_width=True):
+                    st.session_state.quick_analyze = selected_symbol
+                    st.rerun()
+            
+            elif current_page == "pages/6_Fundamental_Analysis.py" or 'fundamental_analysis' in st.session_state:
+                if st.button("📊 Run Fundamental Analysis", key="sidebar_fund_analysis", use_container_width=True):
+                    st.session_state.quick_fundamental = selected_symbol
+                    st.rerun()
+            
+            elif current_page == "pages/7_Investment_Assessment.py" or 'assessment_data' in st.session_state:
+                if st.button("🎯 Run Investment Assessment", key="sidebar_investment_assess", use_container_width=True):
+                    st.session_state.quick_assess = selected_symbol
+                    st.rerun()
+            
+            # Generic fallback button
+            else:
+                if st.button("🚀 Run Analysis", key="sidebar_generic_analysis", use_container_width=True):
+                    st.session_state.quick_analyze = selected_symbol
+                    st.rerun()
+
+
 def create_sidebar() -> None:
     """Create consistent sidebar navigation across all pages."""
     create_custom_navigation()
+    create_stock_selection_sidebar()
 
 
 def handle_change_password_modal() -> bool:

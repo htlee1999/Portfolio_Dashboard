@@ -459,45 +459,34 @@ def main():
     
     st.markdown('<h1 class="main-header">📈 Technical Analysis</h1>', unsafe_allow_html=True)
     
-    # Main content area for symbol selection and analysis parameters
-    st.subheader("Analysis Settings")
+    # Get selected symbol from sidebar
+    symbol = st.session_state.get("selected_stock", "AAPL")
     
-    # Get symbols from portfolio or allow manual input
-    portfolio = st.session_state.get("portfolio", pd.DataFrame())
-    if not portfolio.empty:
-        portfolio_symbols = portfolio['Symbol'].unique().tolist()
-        symbol_options = portfolio_symbols + ["Custom Symbol"]
-    else:
-        symbol_options = ["Custom Symbol"]
-    
-    # Handle quick analyze from portfolio buttons
+    # Handle quick analyze from sidebar button
     if 'quick_analyze' in st.session_state:
         symbol = st.session_state.quick_analyze
         del st.session_state.quick_analyze  # Clear the quick analyze flag
         # Automatically trigger analysis
         st.session_state.auto_analyze = True
-    else:
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            selected_option = st.selectbox("Select Symbol", symbol_options)
-            
-            if selected_option == "Custom Symbol":
-                symbol = st.text_input("Enter Stock Symbol", value="AAPL").upper()
-            else:
-                symbol = selected_option
-        
-        with col2:
-            # Time period selection
-            period_options = {
-                "1 Month": "1mo",
-                "3 Months": "3mo", 
-                "6 Months": "6mo",
-                "1 Year": "1y",
-                "2 Years": "2y",
-                "5 Years": "5y"
-            }
-            selected_period = st.selectbox("Time Period", list(period_options.keys()))
-            period = period_options[selected_period]
+    
+    # Analysis parameters
+    st.subheader("Analysis Settings")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.info(f"**Selected Stock:** {symbol}")
+    with col2:
+        # Time period selection
+        period_options = {
+            "1 Month": "1mo",
+            "3 Months": "3mo", 
+            "6 Months": "6mo",
+            "1 Year": "1y",
+            "2 Years": "2y",
+            "5 Years": "5y"
+        }
+        selected_period = st.selectbox("Time Period", list(period_options.keys()))
+        period = period_options[selected_period]
     
     # Analysis parameters
     st.subheader("Indicator Parameters")
@@ -514,26 +503,6 @@ def main():
     with col5:
         bb_std = st.slider("Bollinger Bands Std Dev", 1.0, 3.0, 2.0)
     
-    # Quick symbol switcher (only show when analysis is active)
-    if 'ta_data' in st.session_state and not st.session_state.ta_data.empty:
-        st.markdown("---")
-        st.subheader("Quick Switch")
-        st.write("Switch to another symbol:")
-        
-        # Show portfolio symbols for quick switching
-        if not portfolio.empty:
-            cols = st.columns(min(6, len(portfolio_symbols)))
-            for i, sym in enumerate(portfolio_symbols[:6]):  # Show first 6 symbols
-                with cols[i]:
-                    if st.button(f"📈 {sym}", key=f"quick_switch_{sym}"):
-                        st.session_state.quick_analyze = sym
-                        st.rerun()
-        
-        if st.button("➕ Custom Symbol", key="quick_custom"):
-            # Clear analysis to go back to selection
-            if 'ta_data' in st.session_state:
-                del st.session_state.ta_data
-            st.rerun()
     
     # Fetch data
     analyze_clicked = st.button("Analyze", type="primary")
@@ -741,19 +710,7 @@ def main():
             )
     
     else:
-        st.info("👆 Select a symbol and click 'Analyze' to begin technical analysis")
-        
-        # Show portfolio symbols if available
-        if not portfolio.empty:
-            st.subheader("Your Portfolio Symbols")
-            st.write("Quick access to analyze stocks in your portfolio:")
-            
-            cols = st.columns(min(len(portfolio_symbols), 4))
-            for i, sym in enumerate(portfolio_symbols):
-                with cols[i % 4]:
-                    if st.button(f"Analyze {sym}", key=f"analyze_{sym}"):
-                        st.session_state.quick_analyze = sym
-                        st.rerun()
+        st.info("👆 Select a stock from the sidebar and click 'Analyze' to begin technical analysis")
 
 
 if __name__ == "__main__":

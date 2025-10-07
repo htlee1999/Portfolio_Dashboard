@@ -90,8 +90,8 @@ portfolio/
   config.env.example          # Environment configuration template
   pages/
     0_Sign_Up.py              # User registration
-    1_Portfolio_Builder.py    # Portfolio management
-    2_Dashboard_Overview.py   # Performance dashboard
+    1_Portfolio_Overview.py     # Combined home page and dashboard overview
+    1_Portfolio_Builder.py     # Portfolio management and stock entry
     3_Detailed_Analysis.py    # Advanced analytics
     4_Data_Management.py      # Data tools and JSON editor
     5_Technical_Analysis.py   # Technical analysis tools
@@ -120,7 +120,7 @@ portfolio/
 
 You can also run a specific page directly (Streamlit will mount it as the only page):
 ```bash
-streamlit run pages/2_Dashboard_Overview.py
+streamlit run pages/1_Portfolio_Overview.py
 ```
 
 ### Troubleshooting
