@@ -210,8 +210,9 @@ def signup_form() -> bool:
             
             if success:
                 st.success(f"Account created successfully! Welcome, {username}!")
-                st.info("You can now log in with your new credentials.")
-                st.rerun()
+                st.info("Redirecting you to the login page...")
+                # Redirect to main Portfolio page for login
+                st.switch_page("Portfolio.py")
             else:
                 st.error(message)
                 return False

@@ -216,7 +216,6 @@ if stats:
         last_updated = stats.get("last_updated", "Never")
         if last_updated:
             try:
-                from datetime import datetime
                 dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
                 last_updated = dt.strftime("%Y-%m-%d %H:%M")
             except:

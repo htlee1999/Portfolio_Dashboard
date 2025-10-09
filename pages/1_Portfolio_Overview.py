@@ -71,16 +71,6 @@ st.markdown("---")
 
 if st.session_state.portfolio.empty:
     st.info("No holdings yet. Use the Portfolio Builder page to add stocks to your portfolio.")
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: gray;'>
-            Built with Streamlit and Yahoo Finance API | 
-            Data is delayed and for informational purposes only
-        </div>
-        """, 
-        unsafe_allow_html=True,
-    )
 else:
     st.subheader("Portfolio Snapshot")
     
