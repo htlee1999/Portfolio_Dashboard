@@ -322,18 +322,157 @@ def main():
             """)
             
             st.markdown("""
+            ### 🎛️ Model Parameters Guide
+            
+            Understanding and adjusting these parameters can significantly improve prediction accuracy:
+            
+            #### Random Forest Estimators (50-200, default: 100)
+            - **What it is:** Number of decision trees in the Random Forest ensemble
+            - **Higher values (150-200):**
+              - ✅ More stable and accurate predictions
+              - ✅ Better generalization
+              - ❌ Slower training time
+              - **Use when:** You have plenty of data and want maximum accuracy
+            - **Lower values (50-80):**
+              - ✅ Faster training
+              - ❌ May be less stable
+              - **Use when:** You need quick results or have limited data
+            - **Recommendation:** Start with 100, increase to 150-200 for important decisions
+            
+            #### Max Depth (5-20, default: 10)
+            - **What it is:** Maximum depth of each decision tree
+            - **Higher depth (15-20):**
+              - ✅ Can capture complex patterns
+              - ❌ Risk of overfitting (memorizing noise)
+              - **Use when:** Stock has complex, volatile patterns
+            - **Lower depth (5-8):**
+              - ✅ Prevents overfitting
+              - ✅ More generalizable
+              - ❌ May miss subtle patterns
+              - **Use when:** Stock has stable, predictable trends
+            - **Recommendation:** Start with 10, reduce to 7-8 if you see overfitting (perfect train, poor test results)
+            
+            #### SVM C Parameter (0.1-100, default: 1.0)
+            - **What it is:** Regularization parameter controlling the trade-off between smooth decision boundary and classifying training points correctly
+            - **Higher C (10-100):**
+              - ✅ Tries to classify all training points correctly
+              - ❌ May overfit to training data
+              - **Use when:** You have high-quality, clean data
+            - **Lower C (0.1-1.0):**
+              - ✅ More tolerant to misclassifications
+              - ✅ Better generalization
+              - **Use when:** Data is noisy or you want robust predictions
+            - **Recommendation:** Start with 1.0, increase cautiously if underfitting
+            
+            #### SVM Gamma (scale/auto/0.001-1.0, default: scale)
+            - **What it is:** Defines how far the influence of a single training example reaches
+            - **'scale' (Recommended):** 1 / (n_features * X.var()) - automatic scaling
+            - **'auto':** 1 / n_features - simpler automatic scaling
+            - **High gamma (0.1-1.0):**
+              - ✅ Close fit to training data
+              - ❌ May overfit
+              - **Use when:** Decision boundary should be very specific
+            - **Low gamma (0.001-0.01):**
+              - ✅ Smoother decision boundary
+              - ✅ Better generalization
+              - **Use when:** You want robust, stable predictions
+            - **Recommendation:** Use 'scale' for most cases, try 'auto' if 'scale' doesn't work well
+            
+            #### Test Size % (10-40, default: 20)
+            - **What it is:** Percentage of data reserved for testing (not used in training)
+            - **Larger test size (30-40%):**
+              - ✅ More reliable evaluation
+              - ✅ Better estimate of real-world performance
+              - ❌ Less data for training
+              - **Use when:** You have lots of data (2+ years)
+            - **Smaller test size (10-20%):**
+              - ✅ More data for training
+              - ❌ Less reliable evaluation
+              - **Use when:** You have limited data (< 6 months)
+            - **Recommendation:** Use 20% as standard, increase to 30% if you have 2+ years of data
+            
+            ### 📊 Recommended Parameter Combinations
+            
+            #### For Stable, Blue-Chip Stocks (e.g., AAPL, MSFT)
+            ```
+            Random Forest Estimators: 100-150
+            Max Depth: 8-10
+            SVM C: 1.0
+            SVM Gamma: scale
+            Test Size: 20%
+            ```
+            
+            #### For Volatile Tech Stocks (e.g., TSLA, NVDA)
+            ```
+            Random Forest Estimators: 150-200
+            Max Depth: 12-15
+            SVM C: 0.5-1.0
+            SVM Gamma: scale or auto
+            Test Size: 25-30%
+            ```
+            
+            #### For Limited Data (< 6 months)
+            ```
+            Random Forest Estimators: 80-100
+            Max Depth: 6-8
+            SVM C: 0.5
+            SVM Gamma: scale
+            Test Size: 15%
+            ```
+            
+            #### For Maximum Accuracy (with plenty of data)
+            ```
+            Random Forest Estimators: 180-200
+            Max Depth: 10-12
+            SVM C: 1.0
+            SVM Gamma: scale
+            Test Size: 30%
+            ```
+            
+            ### 🔍 How to Tune Parameters
+            
+            1. **Start with defaults** - Run analysis with default parameters
+            2. **Check for overfitting:**
+               - If Directional Accuracy is very high (>80%) but predictions look unrealistic → Reduce Max Depth or C
+               - If predictions follow training data too closely → Reduce complexity
+            3. **Check for underfitting:**
+               - If Directional Accuracy is very low (<50%) → Increase Max Depth or estimators
+               - If model seems too simple → Increase complexity
+            4. **Compare models:**
+               - If Random Forest >> SVM → Complex patterns, keep higher complexity
+               - If SVM >> Random Forest → Clear boundaries, linear patterns
+            5. **Iterate:**
+               - Adjust one parameter at a time
+               - Compare RMSE and Directional Accuracy
+               - Keep the configuration with best test performance
+            
             ### 🎯 How to Interpret Results
             
-            **RMSE (Root Mean Square Error):** Lower is better - measures prediction accuracy
+            **RMSE (Root Mean Square Error):** Lower is better - measures prediction accuracy in price units
+            - < 2% of stock price: Excellent
+            - 2-5% of stock price: Good
+            - > 5% of stock price: Fair, consider adjusting parameters
+            
             **MAE (Mean Absolute Error):** Lower is better - average prediction error
+            - Easier to interpret than RMSE (in actual dollars)
+            - Should be lower than RMSE
+            
             **Directional Accuracy:** Higher is better - percentage of correct direction predictions
+            - > 60%: Good (better than random)
+            - > 70%: Excellent
+            - > 80%: Be cautious - may be overfitting
+            
             **Feature Importance:** Shows which technical indicators most influence predictions
+            - High importance (> 0.1): Primary drivers
+            - Use this to understand what moves the stock
             
             ### ⚠️ Important Disclaimers
             - **Past performance doesn't guarantee future results**
             - **Use predictions as one tool among many for decision making**
             - **Always consider fundamental analysis and market conditions**
             - **Practice with paper trading before using real money**
+            - **Higher complexity doesn't always mean better predictions**
+            - **Watch for overfitting - models that are too perfect on training data**
             """)
         
         # Stock selection
@@ -384,7 +523,7 @@ def main():
             
             with st.spinner("Fetching stock data..."):
                 try:
-                    data = get_stock_data(symbol, period)
+                    data, info = get_stock_data(symbol, period)
                     if data is None or data.empty:
                         st.error(f"Could not fetch data for {symbol}")
                         return
@@ -405,27 +544,40 @@ def main():
             st.success(f"✅ Analysis ready for {symbol}")
             st.info(f"📊 Dataset: {len(df_with_features)} samples with {len(df_with_features.columns)} features")
             
-            # Prepare features for ML
+            # Prepare features and targets together to ensure matching indices
             feature_cols = [col for col in df_with_features.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
-            X = df_with_features[feature_cols].values
             
-            # Regression target: next day's close price
-            y_regression = df_with_features['Close'].shift(-1).dropna().values
-            X_regression = X[:-1]  # Remove last row since we don't have target for it
+            # Create a working dataframe with features and targets
+            df_ml = df_with_features.copy()
             
-            # Classification target: price direction (1 if next day higher, 0 if lower)
-            y_classification = (df_with_features['Close'].shift(-1) > df_with_features['Close']).astype(int).dropna().values
-            X_classification = X[:-1]
+            # Add target columns
+            df_ml['Target_Price'] = df_ml['Close'].shift(-1)  # Next day's price
+            df_ml['Target_Direction'] = (df_ml['Close'].shift(-1) > df_ml['Close']).astype(int)  # Price up/down
+            
+            # Drop rows with NaN in targets (last row will have NaN)
+            df_ml = df_ml.dropna(subset=['Target_Price', 'Target_Direction'])
+            
+            # Now extract X and y with guaranteed matching lengths
+            X = df_ml[feature_cols].values
+            y_regression = df_ml['Target_Price'].values
+            y_classification = df_ml['Target_Direction'].values
+            
+            # Verify lengths match
+            assert len(X) == len(y_regression) == len(y_classification), \
+                f"Length mismatch: X={len(X)}, y_reg={len(y_regression)}, y_class={len(y_classification)}"
             
             # Split data
-            split_idx = int((1 - test_size/100) * len(X_regression))
+            split_idx = int((1 - test_size/100) * len(X))
             
-            X_train, X_test = X_regression[:split_idx], X_regression[split_idx:]
+            X_train, X_test = X[:split_idx], X[split_idx:]
             y_reg_train, y_reg_test = y_regression[:split_idx], y_regression[split_idx:]
             y_class_train, y_class_test = y_classification[:split_idx], y_classification[split_idx:]
             
             # Store results
             results = {}
+            
+            # Prepare dates for plotting (use test set dates)
+            dates = df_ml.index[split_idx:split_idx + len(y_reg_test)]
             
             # =============================================================================
             # MODEL 1: RANDOM FOREST + DECISION TREES
@@ -463,7 +615,6 @@ def main():
                     st.metric("Training Samples", len(X_train))
                 
                 # Plot predictions
-                dates = df_with_features.index[split_idx:split_idx + len(y_reg_test)]
                 st.plotly_chart(
                     create_prediction_chart(y_reg_test, rf_reg_pred, "Random Forest Predictions vs Actual", dates),
                     use_container_width=True

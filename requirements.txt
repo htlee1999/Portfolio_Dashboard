@@ -47,3 +47,12 @@ joblib>=1.3.0  # For model serialization and parallel processing
 # financetoolkit>=1.0.0  # Comprehensive fundamental analysis library
 # eodhistoricaldata>=1.0.0  # EODHD API wrapper
 # finnhub-python>=2.4.0  # Finnhub API wrapper
+
+# Sentiment Analysis Libraries
+google-search-results>=2.4.0  # SERPapi client for news extraction
+nltk>=3.8.0  # Natural Language Toolkit with VADER
+textblob>=0.17.0  # Simple text processing and sentiment analysis
+vaderSentiment>=3.3.0  # VADER sentiment analysis (also included in NLTK)
+
+# PDF Generation for AI Reports
+reportlab>=4.0.0  # For generating PDF reports

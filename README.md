@@ -9,7 +9,8 @@ Interactive Streamlit app for building a stock portfolio, fetching live market d
 - **🔍 Detailed Analysis**: Compare vs S&P 500, risk metrics, sector breakdown
 - **📈 Technical Analysis**: Advanced technical indicators, charting tools, and market analysis
 - **📋 Fundamental Analysis**: Company fundamentals, financial ratios, and valuation metrics
-- **🎯 AI Investment Assessment**: AI-powered investment recommendations using Google Gemini
+- **💭 Sentiment Analysis**: Real-time news sentiment analysis using SERPapi, VADER, and TextBlob
+- **🎯 AI Investment Assessment**: AI-powered investment recommendations using Google Gemini with PDF report export
 - **💾 Data Management**: JSON editor, backup/restore, CSV export/import, portfolio statistics
 - **📊 Usage Monitoring**: Track API usage, costs, and system performance
 - **🌍 Multi-Currency Support**: Automatic currency conversion for global portfolios
@@ -19,6 +20,7 @@ Interactive Streamlit app for building a stock portfolio, fetching live market d
 - macOS/Linux/Windows supported
 - Internet connection for real-time market data
 - Google Gemini API key (optional, for AI features)
+- SERPapi key (optional, for sentiment analysis)
 - Hugging Face API key (optional, for additional AI features)
 
 ### Fresh Setup 
@@ -33,7 +35,7 @@ pip install -r requirements.txt
 
 If you don't have `requirements.txt` yet, install the core dependencies:
 ```bash
-pip install streamlit yfinance pandas numpy plotly requests cryptography google-genai python-dotenv
+pip install streamlit yfinance pandas numpy plotly requests cryptography google-genai python-dotenv reportlab
 ```
 
 ### Configuration
@@ -46,9 +48,11 @@ pip install streamlit yfinance pandas numpy plotly requests cryptography google-
    - Edit `.env` file and add your API keys:
      ```
      GEMINI_API_KEY=your_gemini_api_key_here
+     SERP_API_KEY=your_serpapi_key_here
      HUGGINGFACE_API_KEY=your_huggingface_api_key_here
      ```
    - See [Gemini Setup Guide](documentations/GEMINI_SETUP.md) for detailed instructions
+   - See [Sentiment Analysis Setup](documentations/SENTIMENT_ANALYSIS_README.md) for SERPapi configuration
 
 3. **Start the application**:
    ```bash
@@ -75,6 +79,7 @@ MSFT,15,300.00,2024-02-01,USD
 - **🌍 Multi-Currency**: Automatic currency conversion using Yahoo Finance exchange rates.
 - **💾 Data Storage**: Local JSON files in `data/` directory with automatic backups.
 - **🤖 AI Features**: Google Gemini integration for intelligent investment analysis and recommendations.
+- **💭 Sentiment Analysis**: Real-time news extraction via SERPapi with VADER and TextBlob sentiment analysis.
 - **📊 Technical Analysis**: Advanced charting with multiple technical indicators and overlays.
 - **🔍 Fundamental Analysis**: Company financial metrics and valuation analysis.
 - **📱 Navigation**: Clean sidebar with custom title above default Streamlit navigation.
@@ -98,6 +103,8 @@ portfolio/
     6_Fundamental_Analysis.py # Fundamental analysis
     7_Investment_Assessment.py # AI-powered investment assessment
     8_Usage_Monitoring.py     # Usage monitoring dashboard
+    9_Predictive_Analysis.py  # Predictive analysis and forecasting
+    10_Sentiment_Analysis.py  # News sentiment analysis
   data/                        # Local data storage
     portfolio_*.json          # User portfolio holdings
     settings.json             # App settings
@@ -112,6 +119,8 @@ portfolio/
     HUGGINGFACE_SETUP.md     # Hugging Face setup guide
     LOGIN_SETUP.md           # Authentication setup guide
     TECHNICAL_ANALYSIS_README.md # Technical analysis documentation
+    SENTIMENT_ANALYSIS_README.md # Sentiment analysis documentation
+    PREDICTIVE_ANALYSIS_README.md # Predictive analysis documentation
   requirements.txt
   README.md                   # This file
   .gitignore                  # Git ignore rules
@@ -179,6 +188,7 @@ pip freeze --exclude-editable > requirements.txt
 Quick links to key setup guides:
 - **[Authentication Setup](documentations/LOGIN_SETUP.md)** - User authentication and login system configuration
 - **[Gemini API Setup](documentations/GEMINI_SETUP.md)** - Google Gemini API integration for AI features
+- **[Sentiment Analysis Setup](documentations/SENTIMENT_ANALYSIS_README.md)** - SERPapi integration and sentiment analysis configuration
 - **[Technical Analysis](documentations/TECHNICAL_ANALYSIS_README.md)** - Technical analysis features and indicators
 - **[Data Structure](documentations/DATA_README.md)** - Data storage and structure documentation
 

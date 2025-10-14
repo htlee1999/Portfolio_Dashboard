@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
 import os
@@ -23,12 +24,49 @@ except ImportError:
     GEMINI_AVAILABLE = False
     st.warning("⚠️ Google Gemini or python-dotenv not installed. Please install with: pip install google-genai python-dotenv")
 
+# Import machine learning libraries for predictive analysis
+try:
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+    from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+    from sklearn.svm import SVR, SVC
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
+    st.warning("⚠️ Scikit-learn not installed. Please install with: pip install scikit-learn")
+
 # Import monitoring utilities
 try:
     from gemini_monitor import log_gemini_call
     MONITORING_AVAILABLE = True
 except ImportError:
     MONITORING_AVAILABLE = False
+
+# Import sentiment analysis utilities
+try:
+    from serpapi import GoogleSearch
+    import nltk
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    from textblob import TextBlob
+    SENTIMENT_AVAILABLE = True
+    
+    # Download VADER lexicon if not already present
+    try:
+        nltk.data.find('sentiment/vader_lexicon.zip')
+    except LookupError:
+        try:
+            nltk.download('vader_lexicon', quiet=True)
+            nltk.download('punkt', quiet=True)
+        except:
+            pass
+except ImportError:
+    SENTIMENT_AVAILABLE = False
+
+# Check for SERP_API_KEY
+SERP_API_KEY = os.getenv("SERP_API_KEY")
+SENTIMENT_ENABLED = SENTIMENT_AVAILABLE and SERP_API_KEY and SERP_API_KEY != "your_serpapi_key_here"
 
 
 class TechnicalAnalysis:
@@ -135,6 +173,184 @@ class TechnicalAnalysis:
         return signals
 
 
+class SentimentAnalysis:
+    """Simplified sentiment analysis class for investment assessment."""
+    
+    def __init__(self, symbol, api_key):
+        """Initialize sentiment analysis for a symbol."""
+        self.symbol = symbol
+        self.api_key = api_key
+        if SENTIMENT_AVAILABLE:
+            self.sia = SentimentIntensityAnalyzer()
+        else:
+            self.sia = None
+        self.sentiment_data = None
+    
+    def fetch_news(self, num_results=15):
+        """Fetch news from Google Finance and Google News."""
+        if not SENTIMENT_ENABLED:
+            return []
+        
+        try:
+            all_articles = []
+            
+            # Try Google Finance first
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker(self.symbol)
+                info = ticker.info
+                exchange = info.get('exchange', 'NASDAQ')
+                query = f"{self.symbol}:{exchange}"
+                
+                params = {
+                    "api_key": self.api_key,
+                    "engine": "google_finance",
+                    "q": query
+                }
+                
+                search = GoogleSearch(params)
+                results = search.get_dict()
+                
+                if "news_results" in results:
+                    for item in results["news_results"][:num_results]:
+                        all_articles.append({
+                            "title": item.get("title", ""),
+                            "snippet": item.get("snippet", ""),
+                            "source": item.get("source", "Unknown"),
+                            "date": item.get("date", "Unknown")
+                        })
+            except:
+                pass
+            
+            # Also try Google News
+            try:
+                params = {
+                    "api_key": self.api_key,
+                    "engine": "google_news",
+                    "q": f"{self.symbol} stock",
+                    "gl": "us",
+                    "hl": "en"
+                }
+                
+                search = GoogleSearch(params)
+                results = search.get_dict()
+                
+                if "news_results" in results:
+                    for item in results["news_results"][:num_results]:
+                        all_articles.append({
+                            "title": item.get("title", ""),
+                            "snippet": item.get("snippet", ""),
+                            "source": item.get("source", {}).get("name", "Unknown") if isinstance(item.get("source"), dict) else item.get("source", "Unknown"),
+                            "date": item.get("date", "Unknown")
+                        })
+            except:
+                pass
+            
+            # Remove duplicates based on title
+            seen_titles = set()
+            unique_articles = []
+            for article in all_articles:
+                if article["title"] and article["title"] not in seen_titles:
+                    seen_titles.add(article["title"])
+                    unique_articles.append(article)
+            
+            return unique_articles[:20]  # Limit to 20 articles
+            
+        except Exception as e:
+            st.warning(f"Could not fetch news for sentiment analysis: {str(e)}")
+            return []
+    
+    def analyze_sentiment(self, text):
+        """Analyze sentiment of text using VADER and TextBlob."""
+        if not self.sia:
+            return None
+        
+        # VADER analysis
+        vader_scores = self.sia.polarity_scores(text)
+        
+        # TextBlob analysis
+        blob = TextBlob(text)
+        textblob_scores = {
+            "polarity": blob.sentiment.polarity,
+            "subjectivity": blob.sentiment.subjectivity
+        }
+        
+        # Determine overall sentiment
+        compound = vader_scores['compound']
+        if compound >= 0.05:
+            sentiment = "Positive"
+        elif compound <= -0.05:
+            sentiment = "Negative"
+        else:
+            sentiment = "Neutral"
+        
+        return {
+            "vader_compound": compound,
+            "vader_positive": vader_scores['pos'],
+            "vader_negative": vader_scores['neg'],
+            "vader_neutral": vader_scores['neu'],
+            "textblob_polarity": textblob_scores['polarity'],
+            "textblob_subjectivity": textblob_scores['subjectivity'],
+            "sentiment": sentiment
+        }
+    
+    def run_sentiment_analysis(self):
+        """Run complete sentiment analysis."""
+        if not SENTIMENT_ENABLED:
+            return None
+        
+        # Fetch news
+        articles = self.fetch_news()
+        if not articles:
+            return None
+        
+        # Analyze each article
+        sentiments = []
+        for article in articles:
+            text = f"{article['title']} {article['snippet']}"
+            sentiment = self.analyze_sentiment(text)
+            if sentiment:
+                sentiments.append(sentiment)
+        
+        if not sentiments:
+            return None
+        
+        # Calculate aggregated metrics
+        avg_vader_compound = sum(s['vader_compound'] for s in sentiments) / len(sentiments)
+        avg_textblob_polarity = sum(s['textblob_polarity'] for s in sentiments) / len(sentiments)
+        
+        # Count sentiment categories
+        positive_count = sum(1 for s in sentiments if s['sentiment'] == "Positive")
+        negative_count = sum(1 for s in sentiments if s['sentiment'] == "Negative")
+        neutral_count = sum(1 for s in sentiments if s['sentiment'] == "Neutral")
+        
+        total = len(sentiments)
+        
+        # Overall sentiment
+        if avg_vader_compound >= 0.05:
+            overall_sentiment = "Positive"
+        elif avg_vader_compound <= -0.05:
+            overall_sentiment = "Negative"
+        else:
+            overall_sentiment = "Neutral"
+        
+        self.sentiment_data = {
+            "overall_sentiment": overall_sentiment,
+            "avg_vader_compound": avg_vader_compound,
+            "avg_textblob_polarity": avg_textblob_polarity,
+            "positive_count": positive_count,
+            "negative_count": negative_count,
+            "neutral_count": neutral_count,
+            "positive_pct": (positive_count / total) * 100,
+            "negative_pct": (negative_count / total) * 100,
+            "neutral_pct": (neutral_count / total) * 100,
+            "total_articles": total,
+            "articles_analyzed": articles[:5]  # Store first 5 articles for display
+        }
+        
+        return self.sentiment_data
+
+
 class FundamentalAnalysis:
     """Simplified fundamental analysis class for assessment."""
     
@@ -237,6 +453,165 @@ class FundamentalAnalysis:
         return ratios
 
 
+class PredictiveAnalysis:
+    """Simplified predictive analysis class for investment assessment."""
+    
+    def __init__(self, data):
+        """
+        Initialize with price data.
+        
+        Args:
+            data (pd.DataFrame): OHLCV data with columns ['Open', 'High', 'Low', 'Close', 'Volume']
+        """
+        self.data = data.copy()
+        self.prices = data['Close']
+        self.volumes = data['Volume'] if 'Volume' in data.columns else None
+        
+    def calculate_rsi(self, prices, period=14):
+        """Calculate Relative Strength Index."""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi
+    
+    def prepare_features(self):
+        """Create technical indicators and features for ML models."""
+        df = self.data.copy()
+        
+        # Price-based indicators
+        df['SMA_5'] = df['Close'].rolling(window=5).mean()
+        df['SMA_20'] = df['Close'].rolling(window=20).mean()
+        df['EMA_12'] = df['Close'].ewm(span=12).mean()
+        df['EMA_26'] = df['Close'].ewm(span=26).mean()
+        
+        # Bollinger Bands
+        df['BB_Middle'] = df['Close'].rolling(window=20).mean()
+        bb_std = df['Close'].rolling(window=20).std()
+        df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
+        df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
+        df['BB_Percent'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
+        
+        # Price ratios
+        df['High_Low_Ratio'] = df['High'] / df['Low']
+        df['Open_Close_Ratio'] = df['Open'] / df['Close']
+        
+        # Momentum indicators
+        df['RSI'] = self.calculate_rsi(df['Close'])
+        
+        # MACD
+        df['MACD'] = df['EMA_12'] - df['EMA_26']
+        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+        df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
+        
+        # Volume indicators
+        if self.volumes is not None:
+            df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
+            df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
+        else:
+            df['Volume_SMA'] = 1
+            df['Volume_Ratio'] = 1
+        
+        # Price change indicators
+        df['Price_Change_1d'] = df['Close'].pct_change(1)
+        df['Price_Change_5d'] = df['Close'].pct_change(5)
+        df['Price_Change_20d'] = df['Close'].pct_change(20)
+        
+        # Volatility
+        df['Volatility'] = df['Close'].rolling(window=20).std()
+        
+        # Drop rows with NaN values
+        df = df.dropna()
+        
+        return df
+    
+    def run_prediction_analysis(self, prediction_days=5):
+        """Run simplified prediction analysis."""
+        if not ML_AVAILABLE:
+            return None
+            
+        try:
+            df_with_features = self.prepare_features()
+            
+            if df_with_features.empty or len(df_with_features) < 50:
+                return None
+            
+            # Prepare features for ML
+            feature_cols = [col for col in df_with_features.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+            X = df_with_features[feature_cols].values
+            
+            # Regression target: next day's close price
+            y_regression = df_with_features['Close'].shift(-1).dropna().values
+            X_regression = X[:-1]  # Remove last row since we don't have target for it
+            
+            # Classification target: price direction (1 if next day higher, 0 if lower)
+            y_classification = (df_with_features['Close'].shift(-1) > df_with_features['Close']).astype(int).dropna().values
+            X_classification = X[:-1]
+            
+            # Use 80% for training, 20% for testing
+            split_idx = int(0.8 * len(X_regression))
+            
+            X_train, X_test = X_regression[:split_idx], X_regression[split_idx:]
+            y_reg_train, y_reg_test = y_regression[:split_idx], y_regression[split_idx:]
+            y_class_train, y_class_test = y_classification[:split_idx], y_classification[split_idx:]
+            
+            # Train Random Forest model
+            rf_reg = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=1)
+            rf_class = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=1)
+            
+            rf_reg.fit(X_train, y_reg_train)
+            rf_class.fit(X_train, y_class_train)
+            
+            # Make predictions
+            rf_reg_pred = rf_reg.predict(X_test)
+            rf_class_pred = rf_class.predict(X_test)
+            
+            # Evaluate performance
+            rmse = np.sqrt(mean_squared_error(y_reg_test, rf_reg_pred))
+            mae = mean_absolute_error(y_reg_test, rf_reg_pred)
+            
+            # Directional accuracy
+            actual_direction = np.diff(y_reg_test) > 0
+            pred_direction = np.diff(rf_reg_pred) > 0
+            directional_accuracy = accuracy_score(actual_direction, pred_direction) if len(actual_direction) > 0 else 0
+            
+            # Feature importance
+            feature_importance = rf_reg.feature_importances_
+            top_features = sorted(zip(feature_cols, feature_importance), key=lambda x: x[1], reverse=True)[:5]
+            
+            # Generate future predictions
+            latest_features = X[-1:].reshape(1, -1)
+            future_predictions = []
+            current_price = self.prices.iloc[-1]
+            
+            for _ in range(min(prediction_days, 5)):  # Limit to 5 days for stability
+                pred_price = rf_reg.predict(latest_features)[0]
+                future_predictions.append(pred_price)
+                # Update features for next prediction (simplified)
+                latest_features = latest_features.copy()
+            
+            return {
+                'rmse': rmse,
+                'mae': mae,
+                'directional_accuracy': directional_accuracy,
+                'top_features': top_features,
+                'future_predictions': future_predictions,
+                'current_price': current_price,
+                'model_performance': {
+                    'rmse': rmse,
+                    'mae': mae,
+                    'directional_accuracy': directional_accuracy
+                }
+            }
+            
+        except Exception as e:
+            st.error(f"Error in predictive analysis: {str(e)}")
+            return None
+
+
 def get_portfolio_price_context(symbol: str, username: str = None) -> Dict[str, Any]:
     """
     Get portfolio price context for a specific symbol.
@@ -290,7 +665,7 @@ def get_portfolio_price_context(symbol: str, username: str = None) -> Dict[str, 
 
 
 class InvestmentAssessment:
-    """Comprehensive investment assessment combining technical and fundamental analysis."""
+    """Comprehensive investment assessment combining technical, fundamental, sentiment, and predictive analysis."""
     
     def __init__(self, symbol: str):
         """
@@ -302,17 +677,20 @@ class InvestmentAssessment:
         self.symbol = symbol
         self.technical_analysis = None
         self.fundamental_analysis = None
+        self.predictive_analysis = None
+        self.sentiment_analysis = None
         self.price_data = None
         self.assessment_result = None
         self.portfolio_context = None
         
-    def run_analysis(self, period: str = "1y", username: str = None) -> bool:
+    def run_analysis(self, period: str = "1y", username: str = None, include_sentiment: bool = True) -> bool:
         """
-        Run both technical and fundamental analysis.
+        Run technical, fundamental, predictive, and sentiment analysis.
         
         Args:
             period (str): Time period for technical analysis
             username (str): Username for portfolio data
+            include_sentiment (bool): Whether to include sentiment analysis
             
         Returns:
             bool: True if analysis completed successfully
@@ -332,6 +710,16 @@ class InvestmentAssessment:
             if not self.fundamental_analysis.fetch_data():
                 st.error(f"Could not fetch fundamental data for {self.symbol}")
                 return False
+            
+            # Initialize predictive analysis
+            if ML_AVAILABLE:
+                self.predictive_analysis = PredictiveAnalysis(self.price_data)
+            
+            # Initialize sentiment analysis if enabled
+            if include_sentiment and SENTIMENT_ENABLED:
+                with st.spinner("Running sentiment analysis..."):
+                    self.sentiment_analysis = SentimentAnalysis(self.symbol, SERP_API_KEY)
+                    self.sentiment_analysis.run_sentiment_analysis()
             
             # Get portfolio price context
             self.portfolio_context = get_portfolio_price_context(self.symbol, username)
@@ -410,7 +798,49 @@ class InvestmentAssessment:
             'calculated_ratios': ratios
         }
     
-    def generate_ai_assessment(self, technical_summary: Dict, fundamental_summary: Dict, portfolio_context: Dict = None) -> Optional[Dict[str, Any]]:
+    def get_predictive_summary(self) -> Dict[str, Any]:
+        """Get predictive analysis summary."""
+        if not self.predictive_analysis or not ML_AVAILABLE:
+            return {}
+        
+        try:
+            prediction_results = self.predictive_analysis.run_prediction_analysis(prediction_days=5)
+            if prediction_results:
+                return {
+                    'model_performance': prediction_results.get('model_performance', {}),
+                    'top_features': prediction_results.get('top_features', []),
+                    'future_predictions': prediction_results.get('future_predictions', []),
+                    'current_price': prediction_results.get('current_price', 0),
+                    'rmse': prediction_results.get('rmse', 0),
+                    'mae': prediction_results.get('mae', 0),
+                    'directional_accuracy': prediction_results.get('directional_accuracy', 0)
+                }
+        except Exception as e:
+            st.error(f"Error in predictive analysis: {str(e)}")
+        
+        return {}
+    
+    def get_sentiment_summary(self) -> Dict[str, Any]:
+        """Get sentiment analysis summary."""
+        if not self.sentiment_analysis or not SENTIMENT_ENABLED:
+            return {}
+        
+        sentiment_data = self.sentiment_analysis.sentiment_data
+        if not sentiment_data:
+            return {}
+        
+        return {
+            'overall_sentiment': sentiment_data.get('overall_sentiment', 'Neutral'),
+            'avg_vader_compound': sentiment_data.get('avg_vader_compound', 0),
+            'avg_textblob_polarity': sentiment_data.get('avg_textblob_polarity', 0),
+            'positive_pct': sentiment_data.get('positive_pct', 0),
+            'negative_pct': sentiment_data.get('negative_pct', 0),
+            'neutral_pct': sentiment_data.get('neutral_pct', 0),
+            'total_articles': sentiment_data.get('total_articles', 0),
+            'articles_analyzed': sentiment_data.get('articles_analyzed', [])
+        }
+    
+    def generate_ai_assessment(self, technical_summary: Dict, fundamental_summary: Dict, portfolio_context: Dict = None, predictive_summary: Dict = None, sentiment_summary: Dict = None) -> Optional[Dict[str, Any]]:
         """
         Generate AI-powered investment assessment using Google Gemini 2.5 Flash API.
         
@@ -418,6 +848,8 @@ class InvestmentAssessment:
             technical_summary: Technical analysis summary
             fundamental_summary: Fundamental analysis summary
             portfolio_context: Portfolio price context (if available)
+            predictive_summary: Predictive analysis summary (if available)
+            sentiment_summary: Sentiment analysis summary (if available)
             
         Returns:
             Dict containing AI assessment or None if failed
@@ -437,7 +869,8 @@ class InvestmentAssessment:
             return None
         
         try:
-            # Initialize Gemini client
+            # Initialize Gemini client with reasoning capabilities
+            # Define a dummy function to encourage the model to show its reasoning steps
             client = genai.Client(api_key=gemini_api_key)
             
             # Prepare the analysis data for the AI
@@ -476,6 +909,49 @@ class InvestmentAssessment:
             - Number of Holdings: {portfolio_context.get('holdings_count', 0)}
             """
             
+            # Add predictive analysis section
+            predictive_section = ""
+            if predictive_summary and predictive_summary.get('model_performance'):
+                future_predictions = predictive_summary.get('future_predictions', [])
+                directional_accuracy = predictive_summary.get('directional_accuracy', 0)
+                rmse = predictive_summary.get('rmse', 0)
+                top_features = predictive_summary.get('top_features', [])
+                
+                predictions_text = ""
+                if future_predictions:
+                    predictions_text = f"Next 5 days: {', '.join([f'${p:.2f}' for p in future_predictions[:5]])}"
+                
+                top_features_text = ""
+                if top_features:
+                    top_features_text = f"Key predictive factors: {', '.join([f[0] for f in top_features[:3]])}"
+                
+                predictive_section = f"""
+            PREDICTIVE ANALYSIS (Machine Learning):
+            - Model Accuracy (RMSE): {rmse:.4f}
+            - Directional Accuracy: {directional_accuracy:.2%}
+            - Price Predictions: {predictions_text}
+            - {top_features_text}
+            """
+            
+            # Add sentiment analysis section
+            sentiment_section = ""
+            if sentiment_summary and sentiment_summary.get('total_articles', 0) > 0:
+                overall_sentiment = sentiment_summary.get('overall_sentiment', 'Neutral')
+                vader_compound = sentiment_summary.get('avg_vader_compound', 0)
+                positive_pct = sentiment_summary.get('positive_pct', 0)
+                negative_pct = sentiment_summary.get('negative_pct', 0)
+                neutral_pct = sentiment_summary.get('neutral_pct', 0)
+                total_articles = sentiment_summary.get('total_articles', 0)
+                
+                sentiment_section = f"""
+            SENTIMENT ANALYSIS (News & Market Sentiment):
+            - Overall Market Sentiment: {overall_sentiment}
+            - VADER Sentiment Score: {vader_compound:.3f} (range: -1 to +1)
+            - Sentiment Distribution: {positive_pct:.1f}% Positive, {negative_pct:.1f}% Negative, {neutral_pct:.1f}% Neutral
+            - Based on {total_articles} recent news articles
+            - Sentiment Interpretation: {'Bullish market mood' if vader_compound > 0.2 else 'Bearish market mood' if vader_compound < -0.2 else 'Neutral to mixed market mood'}
+            """
+            
             prompt = f"""
             As a professional financial analyst, please analyze the following stock data for {self.symbol} and provide a comprehensive investment assessment.
 
@@ -495,19 +971,39 @@ class InvestmentAssessment:
             - ROE: {analysis_data['fundamental_analysis']['roe']:.2f}
             - Revenue Growth: {analysis_data['fundamental_analysis']['revenue_growth']:.2f}%
             - Profit Margin: {analysis_data['fundamental_analysis']['profit_margin']:.2f}%
-            - Analyst Recommendation: {analysis_data['fundamental_analysis']['analyst_recommendation']}{portfolio_section}
+            - Analyst Recommendation: {analysis_data['fundamental_analysis']['analyst_recommendation']}{portfolio_section}{predictive_section}{sentiment_section}
 
-            Please provide:
-            1. Overall recommendation (BUY, SELL, or HOLD) - consider the current portfolio position and average purchase price
-            2. Confidence level (1-10)
-            3. Key strengths
-            4. Key risks
-            5. Price target (if applicable)
+            Please provide a STEP-BY-STEP analysis with your reasoning process:
+            
+            STEP 1 - TECHNICAL ANALYSIS INTERPRETATION:
+            Analyze the technical indicators and explain what they reveal about momentum and trend.
+            
+            STEP 2 - FUNDAMENTAL ANALYSIS INTERPRETATION:
+            Evaluate the valuation metrics and financial health. Are they attractive or concerning?
+            
+            STEP 3 - SENTIMENT ANALYSIS INTERPRETATION (if available):
+            How does market sentiment align with or diverge from technical/fundamental signals?
+            
+            STEP 4 - PREDICTIVE ANALYSIS INTERPRETATION (if available):
+            What do the predictive models suggest about future price movement?
+            
+            STEP 5 - PORTFOLIO CONTEXT INTERPRETATION (if available):
+            Given the current position, what action makes sense?
+            
+            STEP 6 - SYNTHESIS & RECOMMENDATION:
+            Integrate all analyses to form a recommendation.
+
+            Then provide your final structured assessment:
+            1. Overall recommendation (BUY, SELL, or HOLD) - consider the current portfolio position, average purchase price, predictive analysis, AND market sentiment
+            2. Confidence level (1-10) - factor in sentiment alignment with technical/fundamental signals
+            3. Key strengths (bullet points)
+            4. Key risks (bullet points)
+            5. Price target (if applicable) - consider fundamental valuation, predictive forecasts, and sentiment momentum
             6. Time horizon for the recommendation
-            7. Brief reasoning for the recommendation, including consideration of the current portfolio position
-            8. Specific advice on whether to add to position, reduce position, or hold current position
+            7. Specific advice on whether to add to position, reduce position, or hold current position
+            8. Final summary reasoning
 
-            Format your response as a structured analysis suitable for investment decision-making.
+            Format your response clearly with visible step numbers and structured sections.
             """
             
             # Call the Gemini API
@@ -518,6 +1014,39 @@ class InvestmentAssessment:
             
             # Extract the response
             ai_response = response.text
+            
+            # Extract reasoning steps from the response
+            reasoning_steps = []
+            try:
+                # Try to extract step-by-step reasoning
+                lines = ai_response.split('\n')
+                current_step = None
+                current_content = []
+                
+                for line in lines:
+                    # Check if this is a new step
+                    if 'STEP' in line.upper() and any(char.isdigit() for char in line):
+                        # Save previous step if exists
+                        if current_step:
+                            reasoning_steps.append({
+                                'step': current_step,
+                                'content': '\n'.join(current_content).strip()
+                            })
+                        # Start new step
+                        current_step = line.strip()
+                        current_content = []
+                    elif current_step:
+                        # Add line to current step content
+                        current_content.append(line)
+                
+                # Save last step
+                if current_step:
+                    reasoning_steps.append({
+                        'step': current_step,
+                        'content': '\n'.join(current_content).strip()
+                    })
+            except Exception as e:
+                st.warning(f"Could not extract reasoning steps: {str(e)}")
             
             # Log the API call for monitoring
             if MONITORING_AVAILABLE:
@@ -541,14 +1070,61 @@ class InvestmentAssessment:
             
             # Try to extract structured information from the response
             lines = ai_response.split('\n')
-            for line in lines:
-                line = line.strip().upper()
-                if 'BUY' in line and 'SELL' not in line and 'HOLD' not in line:
-                    recommendation = "BUY"
-                elif 'SELL' in line and 'BUY' not in line and 'HOLD' not in line:
-                    recommendation = "SELL"
-                elif 'HOLD' in line and 'BUY' not in line and 'SELL' not in line:
-                    recommendation = "HOLD"
+            for i, line in enumerate(lines):
+                line_upper = line.strip().upper()
+                
+                # Extract recommendation
+                if 'RECOMMENDATION' in line_upper:
+                    if 'BUY' in line_upper and 'SELL' not in line_upper:
+                        recommendation = "BUY"
+                    elif 'SELL' in line_upper and 'BUY' not in line_upper:
+                        recommendation = "SELL"
+                    elif 'HOLD' in line_upper:
+                        recommendation = "HOLD"
+                
+                # Extract confidence level
+                if 'CONFIDENCE' in line_upper:
+                    # Try to find a number between 1-10
+                    import re
+                    match = re.search(r'\b([1-9]|10)\b', line)
+                    if match:
+                        confidence = int(match.group(1))
+                
+                # Extract time horizon
+                if 'TIME HORIZON' in line_upper or 'TIMEFRAME' in line_upper:
+                    if 'SHORT' in line_upper:
+                        time_horizon = "Short-term"
+                    elif 'LONG' in line_upper:
+                        time_horizon = "Long-term"
+                    else:
+                        time_horizon = "Medium-term"
+                
+                # Extract strengths
+                if 'STRENGTH' in line_upper and ':' in line:
+                    # Look for bullet points in following lines
+                    for j in range(i+1, min(i+10, len(lines))):
+                        next_line = lines[j].strip()
+                        if next_line.startswith(('-', '•', '*', '+')):
+                            strengths.append(next_line.lstrip('-•*+ '))
+                        elif next_line and not next_line.startswith(' ') and ':' in next_line:
+                            break
+                
+                # Extract risks
+                if 'RISK' in line_upper and ':' in line:
+                    # Look for bullet points in following lines
+                    for j in range(i+1, min(i+10, len(lines))):
+                        next_line = lines[j].strip()
+                        if next_line.startswith(('-', '•', '*', '+')):
+                            risks.append(next_line.lstrip('-•*+ '))
+                        elif next_line and not next_line.startswith(' ') and ':' in next_line:
+                            break
+                
+                # Extract price target
+                if 'PRICE TARGET' in line_upper or 'TARGET PRICE' in line_upper:
+                    import re
+                    match = re.search(r'\$(\d+\.?\d*)', line)
+                    if match:
+                        price_target = float(match.group(1))
             
             return {
                 'recommendation': recommendation,
@@ -558,6 +1134,7 @@ class InvestmentAssessment:
                 'price_target': price_target,
                 'time_horizon': time_horizon,
                 'reasoning': reasoning,
+                'reasoning_steps': reasoning_steps,
                 'raw_response': ai_response
             }
             
@@ -588,6 +1165,8 @@ class InvestmentAssessment:
         # Get summaries
         technical_summary = self.get_technical_summary()
         fundamental_summary = self.get_fundamental_summary()
+        predictive_summary = self.get_predictive_summary()
+        sentiment_summary = self.get_sentiment_summary()
         
         # Display header with symbol and basic info
         st.markdown(f"<h2 style='text-align: center; color: #1f77b4;'>{self.symbol} Investment Assessment</h2>", unsafe_allow_html=True)
@@ -631,39 +1210,134 @@ class InvestmentAssessment:
             st.markdown("---")
         
         # Create tabs for different analysis views
-        tab1, tab2, tab3, tab4 = st.tabs(["AI Assessment", "Technical Summary", "Fundamental Summary", "Combined Analysis"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["AI Assessment", "Technical Summary", "Fundamental Summary", "Sentiment Analysis", "Predictive Analysis", "Combined Analysis"])
         
         with tab1:
             st.subheader("🤖 AI-Powered Investment Assessment")
             
             if st.button("Generate AI Assessment", type="primary"):
-                with st.spinner("Generating AI assessment..."):
-                    self.assessment_result = self.generate_ai_assessment(technical_summary, fundamental_summary, self.portfolio_context)
+                with st.spinner("Generating AI assessment with sentiment analysis..."):
+                    self.assessment_result = self.generate_ai_assessment(technical_summary, fundamental_summary, self.portfolio_context, predictive_summary, sentiment_summary)
             
             if self.assessment_result:
                 # Display recommendation with color coding
                 recommendation = self.assessment_result.get('recommendation', 'HOLD')
                 confidence = self.assessment_result.get('confidence', 5)
+                time_horizon = self.assessment_result.get('time_horizon', 'Medium-term')
+                price_target = self.assessment_result.get('price_target')
                 
-                col1, col2 = st.columns(2)
+                # Top-level metrics
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     if recommendation == "BUY":
-                        st.success(f"🎯 Recommendation: {recommendation}")
+                        st.success(f"🎯 **Recommendation**\n\n# {recommendation}")
                     elif recommendation == "SELL":
-                        st.error(f"🎯 Recommendation: {recommendation}")
+                        st.error(f"🎯 **Recommendation**\n\n# {recommendation}")
                     else:
-                        st.info(f"🎯 Recommendation: {recommendation}")
+                        st.info(f"🎯 **Recommendation**\n\n# {recommendation}")
                 
                 with col2:
-                    st.metric("Confidence Level", f"{confidence}/10")
+                    st.metric("Confidence Level", f"{confidence}/10", help="AI confidence in recommendation (1-10)")
                 
-                # Display reasoning
-                st.subheader("Analysis Reasoning")
+                with col3:
+                    st.metric("Time Horizon", time_horizon)
+                
+                with col4:
+                    if price_target:
+                        st.metric("Price Target", f"${price_target:.2f}")
+                    else:
+                        st.metric("Price Target", "N/A")
+                
+                st.markdown("---")
+                
+                # Display reasoning steps
+                reasoning_steps = self.assessment_result.get('reasoning_steps', [])
+                if reasoning_steps:
+                    st.subheader("🧠 AI Reasoning Process")
+                    st.markdown("*Here's how the AI analyzed the data step-by-step:*")
+                    
+                    for i, step_data in enumerate(reasoning_steps, 1):
+                        step_title = step_data.get('step', f'Step {i}')
+                        step_content = step_data.get('content', '')
+                        
+                        # Use expanders for each reasoning step
+                        with st.expander(f"**{step_title}**", expanded=(i <= 2)):  # First 2 steps expanded
+                            if step_content:
+                                st.markdown(step_content)
+                            else:
+                                st.info("No detailed reasoning for this step")
+                    
+                    st.markdown("---")
+                
+                # Display strengths and risks
+                strengths = self.assessment_result.get('strengths', [])
+                risks = self.assessment_result.get('risks', [])
+                
+                if strengths or risks:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if strengths:
+                            st.subheader("💪 Key Strengths")
+                            for strength in strengths:
+                                st.success(f"✓ {strength}")
+                    
+                    with col2:
+                        if risks:
+                            st.subheader("⚠️ Key Risks")
+                            for risk in risks:
+                                st.warning(f"⚠ {risk}")
+                    
+                    st.markdown("---")
+                
+                # Display full reasoning
+                st.subheader("📋 Complete Analysis")
                 st.write(self.assessment_result.get('reasoning', 'No reasoning provided'))
                 
                 # Display raw response in expander
-                with st.expander("View Raw AI Response"):
+                with st.expander("🔍 View Raw AI Response"):
                     st.text(self.assessment_result.get('raw_response', ''))
+                
+                # PDF Export Button
+                st.markdown("---")
+                st.subheader("📄 Export Report")
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button("📥 Download PDF Report", type="primary", help="Generate and download comprehensive AI assessment report"):
+                        with st.spinner("Generating PDF report..."):
+                            from app_utils import generate_ai_report_pdf
+                            
+                            # Get analysis summaries for PDF
+                            technical_summary_text = self.get_technical_summary_text(technical_summary)
+                            fundamental_summary_text = self.get_fundamental_summary_text(fundamental_summary)
+                            sentiment_summary_text = self.get_sentiment_summary_text(sentiment_summary)
+                            predictive_summary_text = self.get_predictive_summary_text(predictive_summary)
+                            
+                            # Generate PDF
+                            pdf_path = generate_ai_report_pdf(
+                                self.assessment_result,
+                                self.symbol,
+                                technical_summary_text,
+                                fundamental_summary_text,
+                                sentiment_summary_text,
+                                predictive_summary_text
+                            )
+                            
+                            if pdf_path:
+                                with open(pdf_path, 'rb') as f:
+                                    st.download_button(
+                                        label="📄 Download PDF Report",
+                                        data=f.read(),
+                                        file_name=f"ai_report_{self.symbol}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                                        mime="application/pdf"
+                                    )
+                                st.success("PDF report generated successfully!")
+                            else:
+                                st.error("Failed to generate PDF report")
+                
+                with col2:
+                    st.info("💡 **PDF includes:**\n- Executive summary\n- AI reasoning process\n- Strengths & risks\n- Complete analysis\n- All summaries")
             else:
                 st.info("Click 'Generate AI Assessment' to get AI-powered investment recommendation")
         
@@ -756,10 +1430,166 @@ class InvestmentAssessment:
                     st.metric("Profit Margin", f"{profit_margin:.2f}%")
         
         with tab4:
+            st.subheader("💭 Sentiment Analysis")
+            
+            if sentiment_summary and sentiment_summary.get('total_articles', 0) > 0:
+                # Overall sentiment
+                overall_sentiment = sentiment_summary.get('overall_sentiment', 'Neutral')
+                vader_compound = sentiment_summary.get('avg_vader_compound', 0)
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if overall_sentiment == "Positive":
+                        st.success(f"**Overall Sentiment:** 🟢 {overall_sentiment}")
+                    elif overall_sentiment == "Negative":
+                        st.error(f"**Overall Sentiment:** 🔴 {overall_sentiment}")
+                    else:
+                        st.info(f"**Overall Sentiment:** 🟡 {overall_sentiment}")
+                
+                with col2:
+                    st.metric("VADER Score", f"{vader_compound:.3f}", help="Range: -1 (very negative) to +1 (very positive)")
+                
+                with col3:
+                    st.metric("Articles Analyzed", sentiment_summary.get('total_articles', 0))
+                
+                # Sentiment distribution
+                st.markdown("---")
+                st.write("**Sentiment Distribution:**")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    positive_pct = sentiment_summary.get('positive_pct', 0)
+                    st.metric("🟢 Positive", f"{positive_pct:.1f}%")
+                
+                with col2:
+                    negative_pct = sentiment_summary.get('negative_pct', 0)
+                    st.metric("🔴 Negative", f"{negative_pct:.1f}%")
+                
+                with col3:
+                    neutral_pct = sentiment_summary.get('neutral_pct', 0)
+                    st.metric("🟡 Neutral", f"{neutral_pct:.1f}%")
+                
+                # Progress bars for visual representation
+                st.progress(positive_pct / 100, text=f"Positive: {positive_pct:.1f}%")
+                st.progress(negative_pct / 100, text=f"Negative: {negative_pct:.1f}%")
+                st.progress(neutral_pct / 100, text=f"Neutral: {neutral_pct:.1f}%")
+                
+                # Sample articles
+                articles = sentiment_summary.get('articles_analyzed', [])
+                if articles:
+                    st.markdown("---")
+                    st.write("**Sample News Headlines:**")
+                    for i, article in enumerate(articles[:5], 1):
+                        with st.expander(f"{i}. {article.get('title', 'N/A')[:80]}..."):
+                            st.write(f"**Source:** {article.get('source', 'Unknown')}")
+                            st.write(f"**Date:** {article.get('date', 'Unknown')}")
+                            st.write(f"**Snippet:** {article.get('snippet', 'N/A')}")
+                
+                # Interpretation
+                st.markdown("---")
+                st.subheader("📊 Sentiment Interpretation")
+                
+                if vader_compound > 0.3:
+                    st.success("🚀 **Very Bullish**: Strong positive sentiment suggests high market confidence and potential upward momentum")
+                elif vader_compound > 0.1:
+                    st.success("📈 **Bullish**: Positive sentiment indicates favorable market mood")
+                elif vader_compound > -0.1:
+                    st.info("➡️ **Neutral**: Mixed or balanced sentiment, no clear directional bias")
+                elif vader_compound > -0.3:
+                    st.warning("📉 **Bearish**: Negative sentiment suggests caution and potential downward pressure")
+                else:
+                    st.error("💣 **Very Bearish**: Strong negative sentiment indicates high pessimism and potential selling pressure")
+                
+                st.info("""
+                **Using Sentiment for Investment Decisions:**
+                - **Confirmation**: Positive sentiment + positive technicals/fundamentals = stronger buy signal
+                - **Divergence**: Negative sentiment + strong fundamentals = potential contrarian opportunity
+                - **Timing**: Sentiment can help time entries/exits within your investment thesis
+                - **Risk Management**: Very negative sentiment may warrant smaller position sizes
+                """)
+                
+            elif not SENTIMENT_ENABLED:
+                st.warning("⚠️ Sentiment analysis not available")
+                if not SENTIMENT_AVAILABLE:
+                    st.error("Required packages not installed. Please run:")
+                    st.code("pip install google-search-results nltk textblob vaderSentiment")
+                elif not SERP_API_KEY or SERP_API_KEY == "your_serpapi_key_here":
+                    st.error("SERPapi key not configured. Please:")
+                    st.markdown("""
+                    1. Get API key from https://serpapi.com/
+                    2. Add to `.env` file: `SERP_API_KEY=your_key`
+                    3. Restart the application
+                    """)
+            else:
+                st.info("No sentiment data available for this stock. This may be due to limited news coverage.")
+        
+        with tab5:
+            st.subheader("🤖 Predictive Analysis")
+            
+            if predictive_summary and predictive_summary.get('model_performance'):
+                # Model performance metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("RMSE", f"{predictive_summary.get('rmse', 0):.4f}")
+                with col2:
+                    st.metric("MAE", f"{predictive_summary.get('mae', 0):.4f}")
+                with col3:
+                    directional_acc = predictive_summary.get('directional_accuracy', 0)
+                    st.metric("Directional Accuracy", f"{directional_acc:.2%}")
+                
+                # Future predictions
+                future_predictions = predictive_summary.get('future_predictions', [])
+                if future_predictions:
+                    st.subheader("📈 Price Predictions")
+                    current_price = predictive_summary.get('current_price', 0)
+                    
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    for i, pred_price in enumerate(future_predictions[:5]):
+                        with [col1, col2, col3, col4, col5][i]:
+                            change_pct = ((pred_price - current_price) / current_price) * 100 if current_price > 0 else 0
+                            st.metric(f"Day {i+1}", f"${pred_price:.2f}", delta=f"{change_pct:.2f}%")
+                
+                # Top features
+                top_features = predictive_summary.get('top_features', [])
+                if top_features:
+                    st.subheader("🔍 Key Predictive Factors")
+                    feature_df = pd.DataFrame(top_features, columns=['Feature', 'Importance'])
+                    st.dataframe(feature_df, use_container_width=True)
+                
+                # Model reliability assessment
+                st.subheader("📊 Model Assessment")
+                rmse = predictive_summary.get('rmse', 0)
+                directional_acc = predictive_summary.get('directional_accuracy', 0)
+                
+                if rmse < 0.05 and directional_acc > 0.6:
+                    st.success("✅ Model shows good predictive performance")
+                elif rmse < 0.1 and directional_acc > 0.55:
+                    st.warning("⚠️ Model shows moderate predictive performance")
+                else:
+                    st.error("❌ Model shows limited predictive performance")
+                
+                st.info("""
+                **Model Performance Guidelines:**
+                - RMSE < 0.05: Excellent accuracy
+                - RMSE 0.05-0.1: Good accuracy  
+                - RMSE > 0.1: Limited accuracy
+                - Directional Accuracy > 60%: Good trend prediction
+                - Directional Accuracy < 55%: Limited trend prediction
+                """)
+            else:
+                if not ML_AVAILABLE:
+                    st.error("⚠️ Machine learning libraries not available. Please install scikit-learn.")
+                else:
+                    st.info("🤖 Predictive analysis will be available after running the assessment")
+        
+        with tab6:
             st.subheader("🔄 Combined Analysis")
             
             # Create a comprehensive comparison chart
-            self.create_combined_analysis_chart(technical_summary, fundamental_summary)
+            self.create_combined_analysis_chart(technical_summary, fundamental_summary, predictive_summary, sentiment_summary)
             
             # Display analyst vs AI recommendation comparison
             st.write("**Recommendation Comparison**")
@@ -783,10 +1613,10 @@ class InvestmentAssessment:
                 else:
                     st.info("Generate AI assessment to see recommendation")
     
-    def create_combined_analysis_chart(self, technical_summary: Dict, fundamental_summary: Dict) -> None:
+    def create_combined_analysis_chart(self, technical_summary: Dict, fundamental_summary: Dict, predictive_summary: Dict = None, sentiment_summary: Dict = None) -> None:
         """Create a combined analysis chart."""
         # Create a radar chart for key metrics
-        categories = ['Valuation', 'Growth', 'Profitability', 'Technical', 'Risk']
+        categories = ['Valuation', 'Growth', 'Profitability', 'Technical', 'Risk', 'Sentiment', 'Predictive']
         
         # Normalize values to 0-100 scale for radar chart
         pe_ratio = fundamental_summary.get('pe_ratio', 0)
@@ -804,7 +1634,23 @@ class InvestmentAssessment:
         debt_to_equity = fundamental_summary.get('debt_to_equity', 0)
         risk_score = max(0, min(100, 100 - debt_to_equity * 20)) if debt_to_equity else 50
         
-        values = [pe_score, growth_score, profitability_score, technical_score, risk_score]
+        # Add sentiment score if available
+        if sentiment_summary and sentiment_summary.get('total_articles', 0) > 0:
+            vader_compound = sentiment_summary.get('avg_vader_compound', 0)
+            # Convert VADER score (-1 to +1) to 0-100 scale
+            # -1 = 0 (worst), 0 = 50 (neutral), +1 = 100 (best)
+            sentiment_score = max(0, min(100, (vader_compound + 1) * 50))
+        else:
+            sentiment_score = 50  # Default neutral score
+        
+        # Add predictive score if available
+        if predictive_summary and predictive_summary.get('directional_accuracy'):
+            directional_acc = predictive_summary.get('directional_accuracy', 0)
+            predictive_score = max(0, min(100, directional_acc * 100))
+        else:
+            predictive_score = 50  # Default neutral score
+        
+        values = [pe_score, growth_score, profitability_score, technical_score, risk_score, sentiment_score, predictive_score]
         
         fig = go.Figure()
         
@@ -823,11 +1669,152 @@ class InvestmentAssessment:
                     range=[0, 100]
                 )),
             showlegend=True,
-            title="Combined Analysis Radar Chart",
+            title="Combined Analysis Radar Chart (Including Sentiment & Predictive Analysis)",
             height=500
         )
         
         st.plotly_chart(fig, use_container_width=True)
+
+    def get_technical_summary_text(self, technical_summary: Dict) -> str:
+        """Convert technical summary dict to formatted text."""
+        if not technical_summary:
+            return "No technical analysis data available."
+        
+        text_parts = []
+        
+        # RSI
+        rsi = technical_summary.get('rsi')
+        if rsi:
+            if rsi > 70:
+                text_parts.append(f"RSI: {rsi:.2f} (Overbought - potential sell signal)")
+            elif rsi < 30:
+                text_parts.append(f"RSI: {rsi:.2f} (Oversold - potential buy signal)")
+            else:
+                text_parts.append(f"RSI: {rsi:.2f} (Neutral)")
+        
+        # MACD
+        macd = technical_summary.get('macd')
+        macd_signal = technical_summary.get('macd_signal')
+        if macd and macd_signal:
+            if macd > macd_signal:
+                text_parts.append("MACD: Bullish crossover detected")
+            else:
+                text_parts.append("MACD: Bearish crossover detected")
+        
+        # Bollinger Bands
+        bb_percent = technical_summary.get('bb_percent')
+        if bb_percent:
+            if bb_percent > 1:
+                text_parts.append(f"Bollinger Bands: Above upper band ({bb_percent:.2f}) - potential overbought")
+            elif bb_percent < 0:
+                text_parts.append(f"Bollinger Bands: Below lower band ({bb_percent:.2f}) - potential oversold")
+            else:
+                text_parts.append(f"Bollinger Bands: Within normal range ({bb_percent:.2f})")
+        
+        # Price levels
+        current_price = technical_summary.get('current_price', 0)
+        support = technical_summary.get('support', 0)
+        resistance = technical_summary.get('resistance', 0)
+        if current_price and support and resistance:
+            text_parts.append(f"Current Price: ${current_price:.2f}")
+            text_parts.append(f"Support Level: ${support:.2f}")
+            text_parts.append(f"Resistance Level: ${resistance:.2f}")
+        
+        return "\n".join(text_parts) if text_parts else "No technical indicators available."
+
+    def get_fundamental_summary_text(self, fundamental_summary: Dict) -> str:
+        """Convert fundamental summary dict to formatted text."""
+        if not fundamental_summary:
+            return "No fundamental analysis data available."
+        
+        text_parts = []
+        
+        # Key ratios
+        pe_ratio = fundamental_summary.get('pe_ratio')
+        if pe_ratio:
+            text_parts.append(f"P/E Ratio: {pe_ratio:.2f}")
+        
+        pb_ratio = fundamental_summary.get('pb_ratio')
+        if pb_ratio:
+            text_parts.append(f"P/B Ratio: {pb_ratio:.2f}")
+        
+        debt_to_equity = fundamental_summary.get('debt_to_equity')
+        if debt_to_equity:
+            text_parts.append(f"Debt-to-Equity: {debt_to_equity:.2f}")
+        
+        roe = fundamental_summary.get('roe')
+        if roe:
+            text_parts.append(f"Return on Equity: {roe:.2%}")
+        
+        # Market cap
+        market_cap = fundamental_summary.get('market_cap')
+        if market_cap:
+            if market_cap >= 1e12:
+                text_parts.append(f"Market Cap: ${market_cap/1e12:.2f}T")
+            elif market_cap >= 1e9:
+                text_parts.append(f"Market Cap: ${market_cap/1e9:.2f}B")
+            elif market_cap >= 1e6:
+                text_parts.append(f"Market Cap: ${market_cap/1e6:.2f}M")
+            else:
+                text_parts.append(f"Market Cap: ${market_cap:,.0f}")
+        
+        return "\n".join(text_parts) if text_parts else "No fundamental metrics available."
+
+    def get_sentiment_summary_text(self, sentiment_summary: Dict) -> str:
+        """Convert sentiment summary dict to formatted text."""
+        if not sentiment_summary:
+            return "No sentiment analysis data available."
+        
+        text_parts = []
+        
+        # Overall sentiment
+        overall_sentiment = sentiment_summary.get('overall_sentiment', 'Neutral')
+        text_parts.append(f"Overall Sentiment: {overall_sentiment}")
+        
+        # VADER score
+        vader_compound = sentiment_summary.get('vader_compound')
+        if vader_compound:
+            text_parts.append(f"VADER Score: {vader_compound:.3f}")
+        
+        # TextBlob score
+        textblob_polarity = sentiment_summary.get('textblob_polarity')
+        if textblob_polarity:
+            text_parts.append(f"TextBlob Score: {textblob_polarity:.3f}")
+        
+        # Article count
+        article_count = sentiment_summary.get('article_count', 0)
+        text_parts.append(f"Articles Analyzed: {article_count}")
+        
+        return "\n".join(text_parts) if text_parts else "No sentiment data available."
+
+    def get_predictive_summary_text(self, predictive_summary: Dict) -> str:
+        """Convert predictive summary dict to formatted text."""
+        if not predictive_summary:
+            return "No predictive analysis data available."
+        
+        text_parts = []
+        
+        # Prediction
+        prediction = predictive_summary.get('prediction')
+        if prediction:
+            text_parts.append(f"ML Prediction: {prediction}")
+        
+        # Confidence
+        confidence = predictive_summary.get('confidence')
+        if confidence:
+            text_parts.append(f"Model Confidence: {confidence:.2%}")
+        
+        # Price forecast
+        price_forecast = predictive_summary.get('price_forecast')
+        if price_forecast:
+            text_parts.append(f"Price Forecast: ${price_forecast:.2f}")
+        
+        # Model used
+        model_used = predictive_summary.get('model_used')
+        if model_used:
+            text_parts.append(f"Model Used: {model_used}")
+        
+        return "\n".join(text_parts) if text_parts else "No predictive data available."
 
 
 def main():
@@ -859,7 +1846,7 @@ def main():
     # Analysis settings
     st.subheader("Analysis Settings")
     
-    col1, col2 = st.columns([1, 1])
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         st.info(f"**Selected Stock:** {symbol}")
     with col2:
@@ -874,8 +1861,18 @@ def main():
         }
         selected_period = st.selectbox("Time Period", list(period_options.keys()))
         period = period_options[selected_period]
+    with col3:
+        # Sentiment analysis option
+        if SENTIMENT_ENABLED:
+            include_sentiment = st.checkbox("Include Sentiment Analysis", value=True, help="Analyze news sentiment using SERPapi (uses API calls)")
+        else:
+            include_sentiment = False
+            if not SENTIMENT_AVAILABLE:
+                st.warning("⚠️ Sentiment packages not installed")
+            elif not SERP_API_KEY:
+                st.warning("⚠️ SERPapi key not configured")
     
-    # Google Gemini API setup check
+    # API and ML setup checks
     if not GEMINI_AVAILABLE:
         st.error("⚠️ Required packages not installed")
         st.code("pip install google-genai python-dotenv")
@@ -889,6 +1886,11 @@ def main():
             2. Add: `GEMINI_API_KEY=your_key_here`
             3. Get free key: [aistudio.google.com](https://aistudio.google.com/)
             """)
+    
+    if not ML_AVAILABLE:
+        st.warning("⚠️ Machine learning libraries not available")
+        st.code("pip install scikit-learn")
+        st.info("Predictive analysis features will be limited without scikit-learn")
     
     # Run assessment button
     assess_clicked = st.button("🚀 Run Assessment", type="primary", use_container_width=True)
@@ -904,9 +1906,12 @@ def main():
         with st.spinner(f"Running comprehensive assessment for {symbol}..."):
             assessment = InvestmentAssessment(symbol)
             username = st.session_state.get("username")
-            if assessment.run_analysis(period, username):
+            if assessment.run_analysis(period, username, include_sentiment):
                 st.session_state.assessment_data = assessment
-                st.success(f"Successfully completed assessment for {symbol}")
+                if include_sentiment and SENTIMENT_ENABLED:
+                    st.success(f"Successfully completed assessment for {symbol} (including sentiment analysis)")
+                else:
+                    st.success(f"Successfully completed assessment for {symbol}")
             else:
                 st.error(f"Failed to complete assessment for {symbol}")
     

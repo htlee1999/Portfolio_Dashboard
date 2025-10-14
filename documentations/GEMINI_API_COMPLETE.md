@@ -1,20 +1,69 @@
-# Gemini API Token Usage Monitoring Setup
+# 🤖 Google Gemini API - Complete Setup & Monitoring Guide
 
-This guide explains how to set up and use the comprehensive Gemini API token monitoring system in your Portfolio Dashboard.
+This comprehensive guide covers everything you need to know about setting up and monitoring Google Gemini API usage in your Portfolio Dashboard.
 
 ## 🎯 Overview
 
-The monitoring system provides:
-- **Real-time token usage tracking** for all Gemini API calls
+The Gemini API integration provides:
+- **AI-powered investment recommendations** in Investment Assessment
+- **Comprehensive usage monitoring** with real-time tracking
 - **Cost analysis** with detailed breakdowns by operation and symbol
 - **Rate limit monitoring** to prevent API quota exceeded errors
 - **Usage trends** with interactive charts and visualizations
 - **Export functionality** for detailed usage reports
 - **Automated recommendations** for cost optimization
 
-## 📊 Features
+## 🚀 Quick Setup (3 Steps)
 
-### 1. Usage Dashboard
+### Step 1: Install Required Packages
+
+```bash
+pip install google-genai python-dotenv
+```
+
+### Step 2: Get Your Free Google Gemini API Token
+
+1. Go to [https://aistudio.google.com/](https://aistudio.google.com/)
+2. Sign in with your Google account
+3. Click "Get API key"
+4. Create a new API key
+5. Give it a name (e.g., "Portfolio Dashboard")
+6. Copy the generated token
+
+### Step 3: Configure Your API Key
+
+#### Option 1: Using .env File (Recommended)
+
+1. **Create a `.env` file in your project root directory:**
+   ```bash
+   touch .env
+   ```
+
+2. **Add your API token to the `.env` file:**
+   ```
+   GEMINI_API_KEY=your_actual_api_token_here
+   ```
+   Replace `your_actual_api_token_here` with the token you copied from Google AI Studio.
+
+3. **The `.env` file is already included in `.gitignore`** so your API key won't be committed to version control.
+
+#### Option 2: Using Environment Variables
+
+If you prefer not to use a `.env` file, you can set the environment variable directly:
+
+**On macOS/Linux:**
+```bash
+export GEMINI_API_KEY="your_actual_api_token_here"
+```
+
+**On Windows:**
+```cmd
+set GEMINI_API_KEY=your_actual_api_token_here
+```
+
+## 📊 Usage Monitoring Features
+
+### 1. 📊 Usage Dashboard
 - **Page 8: Usage Monitoring** - Comprehensive analytics dashboard
 - Real-time metrics: total calls, tokens, costs, success rates
 - Interactive charts showing usage trends over time
@@ -37,11 +86,11 @@ The monitoring system provides:
 - Cost per token and per API call metrics
 - Historical cost trends
 
-## 🚀 Getting Started
+## 🎯 Getting Started with Monitoring
 
 ### 1. Prerequisites
 The monitoring system is automatically available when you have:
-- ✅ Google Gemini API configured (see `GEMINI_SETUP.md` in the documentations folder)
+- ✅ Google Gemini API configured (see setup steps above)
 - ✅ Portfolio Dashboard running
 - ✅ At least one API call made through the Investment Assessment page
 
@@ -138,6 +187,20 @@ For each API call:
 
 ## 🔍 Troubleshooting
 
+### "API key not found" Error
+- Make sure your `.env` file is in the project root directory
+- Verify the token is correctly formatted: `GEMINI_API_KEY=your_token_here`
+- Restart your Streamlit application after creating the `.env` file
+
+### "Required packages not installed" Error
+- Run: `pip install google-genai python-dotenv`
+- Make sure you're in the correct Python environment
+
+### API Rate Limit Exceeded
+- You've exceeded the free tier limits (15 requests per minute)
+- Wait a minute before making more requests
+- Consider upgrading to a paid plan for higher limits
+
 ### No Data Showing
 - Ensure you've made at least one API call through the Investment Assessment page
 - Check that your Gemini API key is properly configured
@@ -167,7 +230,7 @@ Portfolio_Dashboard/
 │   └── 8_Usage_Monitoring.py     # Monitoring dashboard page
 ├── data/
 │   └── gemini_usage.json         # Usage data storage
-└── GEMINI_MONITORING_SETUP.md    # This guide
+└── GEMINI_API_COMPLETE.md        # This guide
 ```
 
 ## 🔄 Updates and Maintenance
@@ -205,8 +268,94 @@ Potential improvements:
 - Custom usage thresholds
 - API key rotation support
 
+## 🎯 Usage Examples
+
+### Using AI Assessment
+
+1. **Start your Portfolio Dashboard:**
+   ```bash
+   streamlit run Portfolio.py
+   ```
+
+2. **Navigate to the Investment Assessment page** (page 7 in the sidebar)
+
+3. **Select a stock symbol** and click "Run Assessment"
+
+4. **Click "Generate AI Assessment"** to get AI-powered buy/sell/hold recommendations
+
+### Understanding AI Recommendations
+
+The AI Assessment page provides:
+- **Technical Analysis:** RSI, MACD, Bollinger Bands, Moving Averages, OBV
+- **Fundamental Analysis:** P/E ratios, financial metrics, growth rates
+- **AI Recommendations:** BUY/SELL/HOLD with confidence levels and reasoning
+- **Combined Analysis:** Radar chart showing overall assessment
+
+## Free Tier Limits
+
+- **Free Tier:** 15 requests per minute, 1 million tokens per day
+- **Paid Tier:** Higher rate limits and additional features available
+
+## Security Notes
+
+- Never commit your `.env` file to version control
+- Keep your API token secure and don't share it
+- The `.env` file is already included in `.gitignore` for security
+
+## API Call Costs Summary
+
+| Action | API Calls |
+|--------|-----------|
+| Investment Assessment | 1 |
+| Usage Monitoring Check | 0 (cached) |
+| Data Export | 0 |
+| Clear Old Data | 0 |
+
+## Best Practices
+
+### Efficient Usage
+
+1. **Check usage at start of session** (1 call)
+2. **Use cached data** for planning (0 calls)
+3. **Run multiple analyses** without rechecking (0 calls)
+4. **Recheck periodically** to sync with server (1 call)
+
+### Strategic Analysis
+
+1. **Morning check** - Plan your day's analyses
+2. **Batch analyze** - Do multiple stocks in one session
+3. **End-of-day check** - Verify remaining usage
+4. **Monthly review** - Track usage patterns
+
+### Cost Optimization
+
+1. **Free plan users:**
+   - ~3 analyses/day = 90/month
+   - Monitor usage 1x/day
+   - Use strategically
+
+2. **Paid plan users:**
+   - More freedom with frequency
+   - Can check usage more frequently
+   - Higher analysis counts
+
 ---
 
 **Happy Monitoring! 📊✨**
 
 Your Gemini API usage is now fully tracked and optimized. Use the monitoring dashboard to understand your usage patterns and control costs effectively.
+
+**Ready to get started?**
+
+```bash
+# 1. Install packages
+pip install google-genai python-dotenv
+
+# 2. Configure your API key in .env file
+echo "GEMINI_API_KEY=your_actual_api_token_here" >> .env
+
+# 3. Start the app
+streamlit run Portfolio.py
+```
+
+**Enjoy your AI-powered investment analysis!** 🚀

@@ -175,8 +175,9 @@ def create_custom_navigation():
                 ("🔍 Detailed Analysis", "pages/3_Detailed_Analysis.py"),
                 ("📈 Technical Analysis", "pages/5_Technical_Analysis.py"),
                 ("📋 Fundamental Analysis", "pages/6_Fundamental_Analysis.py"),
-                ("🎯 Investment Assessment", "pages/7_Investment_Assessment.py"),
                 ("🤖 Predictive Analysis", "pages/9_Predictive_Analysis.py"),
+                ("💭 Sentiment Analysis", "pages/10_Sentiment_Analysis.py"),
+                ("🎯 Investment Assessment", "pages/7_Investment_Assessment.py"),
             ]
             
             for label, page in pages:
@@ -279,7 +280,8 @@ def create_stock_selection_sidebar() -> None:
         "pages/5_Technical_Analysis.py",
         "pages/6_Fundamental_Analysis.py", 
         "pages/7_Investment_Assessment.py",
-        "pages/9_Predictive_Analysis.py"
+        "pages/9_Predictive_Analysis.py",
+        "pages/10_Sentiment_Analysis.py"
     ]
     
     # Method 2: Check if we're in an analysis context by looking at session state keys
@@ -289,10 +291,12 @@ def create_stock_selection_sidebar() -> None:
         'fundamental_analysis' in st.session_state or
         'assessment_data' in st.session_state or
         'pa_results' in st.session_state or
+        'sentiment_data' in st.session_state or
         'quick_analyze' in st.session_state or
         'quick_fundamental' in st.session_state or
         'quick_assess' in st.session_state or
-        'quick_predictive' in st.session_state
+        'quick_predictive' in st.session_state or
+        'quick_sentiment' in st.session_state
     )
     
     # Debug information (uncomment for debugging)
@@ -349,6 +353,11 @@ def create_stock_selection_sidebar() -> None:
             elif current_page == "pages/9_Predictive_Analysis.py" or 'pa_results' in st.session_state:
                 if st.button("🤖 Run Predictive Analysis", key="sidebar_predictive_analysis", use_container_width=True):
                     st.session_state.quick_predictive = selected_symbol
+                    st.rerun()
+            
+            elif current_page == "pages/10_Sentiment_Analysis.py" or 'sentiment_data' in st.session_state:
+                if st.button("💭 Run Sentiment Analysis", key="sidebar_sentiment_analysis", use_container_width=True):
+                    st.session_state.quick_sentiment = selected_symbol
                     st.rerun()
             
             # Generic fallback button
@@ -613,5 +622,224 @@ def clear_all_holdings_from_storage() -> bool:
     except Exception as e:
         st.error(f"Error clearing holdings: {str(e)}")
         return False
+
+
+def generate_ai_report_pdf(assessment_result: dict, symbol: str, technical_summary: str = "", 
+                          fundamental_summary: str = "", sentiment_summary: str = "", 
+                          predictive_summary: str = "") -> str:
+    """
+    Generate a comprehensive PDF report for AI investment assessment.
+    
+    Args:
+        assessment_result: Dictionary containing AI assessment data
+        symbol: Stock symbol being analyzed
+        technical_summary: Technical analysis summary
+        fundamental_summary: Fundamental analysis summary
+        sentiment_summary: Sentiment analysis summary
+        predictive_summary: Predictive analysis summary
+    
+    Returns:
+        str: Path to the generated PDF file, or None if generation failed
+    """
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+        from datetime import datetime
+        import os
+        
+        # Create exports directory
+        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        exports_dir = os.path.join(data_dir, "exports")
+        if not os.path.exists(exports_dir):
+            os.makedirs(exports_dir)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ai_report_{symbol}_{timestamp}.pdf"
+        file_path = os.path.join(exports_dir, filename)
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(file_path, pagesize=A4, 
+                              rightMargin=72, leftMargin=72, 
+                              topMargin=72, bottomMargin=18)
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        
+        # Create custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            textColor=colors.darkblue
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=12,
+            textColor=colors.darkblue
+        )
+        
+        subheading_style = ParagraphStyle(
+            'CustomSubHeading',
+            parent=styles['Heading3'],
+            fontSize=12,
+            spaceAfter=8,
+            spaceBefore=8,
+            textColor=colors.darkgreen
+        )
+        
+        body_style = ParagraphStyle(
+            'CustomBody',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=6,
+            alignment=TA_JUSTIFY
+        )
+        
+        # Build content
+        story = []
+        
+        # Title
+        story.append(Paragraph(f"AI Investment Assessment Report", title_style))
+        story.append(Paragraph(f"Stock Symbol: {symbol.upper()}", heading_style))
+        story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style))
+        story.append(Spacer(1, 20))
+        
+        # Executive Summary
+        story.append(Paragraph("Executive Summary", heading_style))
+        
+        recommendation = assessment_result.get('recommendation', 'HOLD')
+        confidence = assessment_result.get('confidence', 5)
+        time_horizon = assessment_result.get('time_horizon', 'Medium-term')
+        price_target = assessment_result.get('price_target')
+        
+        # Recommendation table
+        rec_data = [
+            ['Recommendation', recommendation],
+            ['Confidence Level', f"{confidence}/10"],
+            ['Time Horizon', time_horizon],
+            ['Price Target', f"${price_target:.2f}" if price_target else "N/A"]
+        ]
+        
+        rec_table = Table(rec_data, colWidths=[2*inch, 3*inch])
+        rec_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightblue),
+        ]))
+        
+        story.append(rec_table)
+        story.append(Spacer(1, 20))
+        
+        # AI Reasoning Process
+        reasoning_steps = assessment_result.get('reasoning_steps', [])
+        if reasoning_steps:
+            story.append(Paragraph("AI Reasoning Process", heading_style))
+            for i, step_data in enumerate(reasoning_steps, 1):
+                step_title = step_data.get('step', f'Step {i}')
+                step_content = step_data.get('content', '')
+                
+                story.append(Paragraph(f"{i}. {step_title}", subheading_style))
+                if step_content:
+                    story.append(Paragraph(step_content, body_style))
+                else:
+                    story.append(Paragraph("No detailed reasoning for this step.", body_style))
+                story.append(Spacer(1, 10))
+        
+        # Strengths and Risks
+        strengths = assessment_result.get('strengths', [])
+        risks = assessment_result.get('risks', [])
+        
+        if strengths or risks:
+            story.append(Paragraph("Key Analysis Points", heading_style))
+            
+            col_data = []
+            if strengths:
+                col_data.append(['Key Strengths', 'Key Risks'])
+                max_len = max(len(strengths), len(risks))
+                for i in range(max_len):
+                    strength = strengths[i] if i < len(strengths) else ""
+                    risk = risks[i] if i < len(risks) else ""
+                    col_data.append([f"✓ {strength}", f"⚠ {risk}"])
+            else:
+                col_data = [['Key Risks']]
+                for risk in risks:
+                    col_data.append([f"⚠ {risk}"])
+            
+            analysis_table = Table(col_data, colWidths=[3*inch, 3*inch] if strengths else [6*inch])
+            analysis_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(analysis_table)
+            story.append(Spacer(1, 20))
+        
+        # Complete Analysis
+        complete_analysis = assessment_result.get('reasoning', 'No reasoning provided')
+        if complete_analysis:
+            story.append(Paragraph("Complete Analysis", heading_style))
+            story.append(Paragraph(complete_analysis, body_style))
+            story.append(Spacer(1, 20))
+        
+        # Analysis Summaries
+        if technical_summary:
+            story.append(Paragraph("Technical Analysis Summary", heading_style))
+            story.append(Paragraph(technical_summary, body_style))
+            story.append(Spacer(1, 15))
+        
+        if fundamental_summary:
+            story.append(Paragraph("Fundamental Analysis Summary", heading_style))
+            story.append(Paragraph(fundamental_summary, body_style))
+            story.append(Spacer(1, 15))
+        
+        if sentiment_summary:
+            story.append(Paragraph("Sentiment Analysis Summary", heading_style))
+            story.append(Paragraph(sentiment_summary, body_style))
+            story.append(Spacer(1, 15))
+        
+        if predictive_summary:
+            story.append(Paragraph("Predictive Analysis Summary", heading_style))
+            story.append(Paragraph(predictive_summary, body_style))
+            story.append(Spacer(1, 15))
+        
+        # Footer
+        story.append(Spacer(1, 30))
+        story.append(Paragraph("Generated by Portfolio Analysis Dashboard", 
+                              ParagraphStyle('Footer', parent=styles['Normal'], 
+                                           fontSize=8, alignment=TA_CENTER, 
+                                           textColor=colors.grey)))
+        
+        # Build PDF
+        doc.build(story)
+        
+        return file_path
+        
+    except Exception as e:
+        # Handle both Streamlit and non-Streamlit contexts
+        try:
+            st.error(f"Error generating PDF report: {str(e)}")
+        except:
+            print(f"Error generating PDF report: {str(e)}")
+        return None
 
 
