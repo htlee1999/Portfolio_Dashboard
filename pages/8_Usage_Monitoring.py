@@ -11,47 +11,22 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 from datetime import datetime, timedelta
-import os
 
-from app_utils import (
-    setup_page,
-    inject_css,
-    init_session_state,
-    create_sidebar,
-)
-from auth_utils import init_auth_session, show_user_menu
 from gemini_monitor import get_monitor, get_usage_summary, get_usage_trends, get_rate_limit_status
+from page_utils import init_protected_page
+from config import GEMINI_AVAILABLE, get_gemini_api_key
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access the Usage Monitoring Dashboard")
-    st.info("Use the Login page in the sidebar to authenticate")
-    st.stop()
-
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page()
 
 st.markdown('<h1 class="main-header">📊 Gemini API Usage Monitoring</h1>', unsafe_allow_html=True)
-
-# Check if Gemini is available
-try:
-    from google import genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
 
 if not GEMINI_AVAILABLE:
     st.error("⚠️ Google Gemini not installed. Please install with: pip install google-genai")
     st.stop()
 
 # Check if API key is configured
-gemini_api_key = os.environ.get("GEMINI_API_KEY")
+gemini_api_key = get_gemini_api_key()
 if not gemini_api_key:
     st.warning("⚠️ Gemini API key not configured. Usage monitoring will show historical data only.")
     st.info("Configure your API key in the Investment Assessment page to start tracking usage.")

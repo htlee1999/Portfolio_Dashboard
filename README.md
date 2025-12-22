@@ -88,10 +88,14 @@ MSFT,15,300.00,2024-02-01,USD
 ```
 portfolio/
   Portfolio.py                 # Home page
-  app_utils.py                 # Shared utilities (data, metrics, styling)
+  app_utils.py                 # Shared utilities (data, metrics, styling, currency)
   auth_utils.py                # Authentication and user management
+  config.py                    # Centralized configuration (API keys, feature flags)
   data_utils.py                # Data persistence and management functions
+  file_utils.py                # File and JSON operations utilities
   gemini_monitor.py            # AI usage monitoring and cost tracking
+  page_utils.py                # Page initialization utilities
+  technical_indicators.py      # Technical analysis indicators library
   config.env.example          # Environment configuration template
   pages/
     0_Sign_Up.py              # User registration

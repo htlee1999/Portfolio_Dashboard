@@ -6,222 +6,10 @@ from plotly.subplots import make_subplots
 import yfinance as yf
 from datetime import datetime
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data, format_currency
-from auth_utils import show_user_menu
-
-
-class TechnicalAnalysis:
-    """Comprehensive technical analysis class implementing the top 5 indicators."""
-    
-    def __init__(self, data):
-        """
-        Initialize with price data.
-        
-        Args:
-            data (pd.DataFrame): OHLCV data with columns ['Open', 'High', 'Low', 'Close', 'Volume']
-        """
-        self.data = data.copy()
-        self.prices = data['Close']
-        self.volumes = data['Volume'] if 'Volume' in data.columns else None
-        
-    def calculate_rsi(self, period=14):
-        """
-        Calculate Relative Strength Index (RSI).
-        
-        Args:
-            period (int): RSI calculation period (default: 14)
-            
-        Returns:
-            pd.Series: RSI values
-        """
-        delta = self.prices.diff()
-        gains = delta.where(delta > 0, 0)
-        losses = -delta.where(delta < 0, 0)
-        
-        avg_gains = gains.ewm(span=period, min_periods=period).mean()
-        avg_losses = losses.ewm(span=period, min_periods=period).mean()
-        
-        rs = avg_gains / avg_losses
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-    
-    def calculate_macd(self, fast_period=12, slow_period=26, signal_period=9):
-        """
-        Calculate MACD (Moving Average Convergence Divergence).
-        
-        Args:
-            fast_period (int): Fast EMA period (default: 12)
-            slow_period (int): Slow EMA period (default: 26)
-            signal_period (int): Signal line EMA period (default: 9)
-            
-        Returns:
-            tuple: (macd_line, signal_line, histogram)
-        """
-        ema_fast = self.prices.ewm(span=fast_period, min_periods=fast_period).mean()
-        ema_slow = self.prices.ewm(span=slow_period, min_periods=slow_period).mean()
-        
-        macd_line = ema_fast - ema_slow
-        signal_line = macd_line.ewm(span=signal_period, min_periods=signal_period).mean()
-        histogram = macd_line - signal_line
-        
-        return macd_line, signal_line, histogram
-    
-    def calculate_bollinger_bands(self, period=20, std_dev=2):
-        """
-        Calculate Bollinger Bands.
-        
-        Args:
-            period (int): Moving average period (default: 20)
-            std_dev (float): Standard deviation multiplier (default: 2)
-            
-        Returns:
-            tuple: (upper_band, middle_band, lower_band, %B, band_width)
-        """
-        middle_band = self.prices.rolling(window=period).mean()
-        rolling_std = self.prices.rolling(window=period).std()
-        
-        upper_band = middle_band + (rolling_std * std_dev)
-        lower_band = middle_band - (rolling_std * std_dev)
-        
-        # Calculate %B (Bollinger Band percentage)
-        bb_percent = (self.prices - lower_band) / (upper_band - lower_band)
-        
-        # Calculate Band Width (volatility measure)
-        band_width = (upper_band - lower_band) / middle_band
-        
-        return upper_band, middle_band, lower_band, bb_percent, band_width
-    
-    def calculate_moving_averages(self, periods=[5, 10, 20, 50]):
-        """
-        Calculate Simple and Exponential Moving Averages.
-        
-        Args:
-            periods (list): List of periods to calculate (default: [5, 10, 20, 50])
-            
-        Returns:
-            dict: Dictionary with SMA and EMA for each period
-        """
-        mas = {}
-        for period in periods:
-            mas[f'SMA_{period}'] = self.prices.rolling(window=period).mean()
-            mas[f'EMA_{period}'] = self.prices.ewm(span=period, min_periods=period).mean()
-        return mas
-    
-    def calculate_obv(self):
-        """
-        Calculate On-Balance Volume (OBV).
-        
-        Returns:
-            pd.Series: OBV values
-        """
-        if self.volumes is None:
-            return pd.Series(index=self.prices.index, dtype=float)
-        
-        obv = [0]
-        for i in range(1, len(self.prices)):
-            if self.prices.iloc[i] > self.prices.iloc[i-1]:
-                obv.append(obv[-1] + self.volumes.iloc[i])
-            elif self.prices.iloc[i] < self.prices.iloc[i-1]:
-                obv.append(obv[-1] - self.volumes.iloc[i])
-            else:
-                obv.append(obv[-1])
-        
-        return pd.Series(obv, index=self.prices.index)
-    
-    def get_signals(self):
-        """
-        Generate trading signals for all indicators.
-        
-        Returns:
-            dict: Dictionary with signals for each indicator
-        """
-        signals = {}
-        
-        # RSI Signals
-        rsi = self.calculate_rsi()
-        signals['rsi'] = {
-            'overbought': rsi > 70,
-            'oversold': rsi < 30,
-            'neutral': (rsi >= 30) & (rsi <= 70),
-            'current_value': rsi.iloc[-1] if not rsi.empty else None
-        }
-        
-        # MACD Signals
-        macd_line, signal_line, histogram = self.calculate_macd()
-        signals['macd'] = {
-            'bullish_crossover': (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1)),
-            'bearish_crossover': (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1)),
-            'above_signal': macd_line > signal_line,
-            'current_macd': macd_line.iloc[-1] if not macd_line.empty else None,
-            'current_signal': signal_line.iloc[-1] if not signal_line.empty else None
-        }
-        
-        # Bollinger Bands Signals
-        upper_bb, middle_bb, lower_bb, bb_percent, band_width = self.calculate_bollinger_bands()
-        signals['bollinger'] = {
-            'above_upper': self.prices > upper_bb,
-            'below_lower': self.prices < lower_bb,
-            'squeeze': band_width < band_width.rolling(20).mean() * 0.5,  # Low volatility
-            'current_bb_percent': bb_percent.iloc[-1] if not bb_percent.empty else None,
-            'current_band_width': band_width.iloc[-1] if not band_width.empty else None
-        }
-        
-        # Moving Average Signals
-        mas = self.calculate_moving_averages()
-        signals['moving_averages'] = {}
-        for name, ma in mas.items():
-            signals['moving_averages'][name] = {
-                'price_above': self.prices > ma,
-                'current_value': ma.iloc[-1] if not ma.empty else None
-            }
-        
-        # OBV Signals
-        obv = self.calculate_obv()
-        obv_ema = obv.ewm(span=10).mean()
-        signals['obv'] = {
-            'rising': obv > obv_ema,
-            'falling': obv < obv_ema,
-            'current_value': obv.iloc[-1] if not obv.empty else None
-        }
-        
-        return signals
-    
-    def add_all_indicators(self):
-        """
-        Add all technical indicators to the data DataFrame.
-        
-        Returns:
-            pd.DataFrame: Data with all indicators added
-        """
-        data_with_indicators = self.data.copy()
-        
-        # RSI
-        data_with_indicators['RSI'] = self.calculate_rsi()
-        
-        # MACD
-        macd_line, signal_line, histogram = self.calculate_macd()
-        data_with_indicators['MACD'] = macd_line
-        data_with_indicators['MACD_Signal'] = signal_line
-        data_with_indicators['MACD_Histogram'] = histogram
-        
-        # Bollinger Bands
-        upper_bb, middle_bb, lower_bb, bb_percent, band_width = self.calculate_bollinger_bands()
-        data_with_indicators['BB_Upper'] = upper_bb
-        data_with_indicators['BB_Middle'] = middle_bb
-        data_with_indicators['BB_Lower'] = lower_bb
-        data_with_indicators['BB_Percent'] = bb_percent
-        data_with_indicators['BB_Width'] = band_width
-        
-        # Moving Averages
-        mas = self.calculate_moving_averages()
-        for name, ma in mas.items():
-            data_with_indicators[name] = ma
-        
-        # OBV
-        data_with_indicators['OBV'] = self.calculate_obv()
-        
-        return data_with_indicators
+from app_utils import get_stock_data, format_currency, apply_chart_style
+from technical_indicators import TechnicalAnalysis
+from page_utils import init_protected_page
+from config import PERIOD_OPTIONS
 
 
 def create_rsi_chart(data, rsi):
@@ -366,12 +154,7 @@ def create_bollinger_bands_chart(data, prices, upper_bb, middle_bb, lower_bb):
         fillcolor='rgba(255,0,0,0.1)'
     ))
     
-    fig.update_layout(
-        title="Bollinger Bands",
-        xaxis_title="Date",
-        yaxis_title="Price",
-        height=500
-    )
+    apply_chart_style(fig, "Bollinger Bands", height=500, yaxis_title="Price")
     
     return fig
 
@@ -400,12 +183,7 @@ def create_moving_averages_chart(data, prices, mas):
             line=dict(color=colors[i % len(colors)], width=1)
         ))
     
-    fig.update_layout(
-        title="Moving Averages",
-        xaxis_title="Date",
-        yaxis_title="Price",
-        height=500
-    )
+    apply_chart_style(fig, "Moving Averages", height=500, yaxis_title="Price")
     
     return fig
 
@@ -433,30 +211,16 @@ def create_obv_chart(data, obv):
         line=dict(color='orange', width=1, dash='dash')
     ))
     
-    fig.update_layout(
-        title="On-Balance Volume (OBV)",
-        xaxis_title="Date",
-        yaxis_title="OBV",
-        height=400
-    )
+    apply_chart_style(fig, "On-Balance Volume (OBV)", height=400, yaxis_title="OBV")
     
     return fig
 
 
 def main():
     """Main technical analysis page."""
-    setup_page()
-    inject_css()
-    init_session_state()
-    create_sidebar()
-    show_user_menu()
-    
-    # Check authentication
-    if not st.session_state.get("authenticated", False):
-        st.warning("🔐 Please log in to access the Technical Analysis page")
-        st.info("Use the Login page in the sidebar to authenticate")
-        return
-    
+    # Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+    init_protected_page()
+
     st.markdown('<h1 class="main-header">📈 Technical Analysis</h1>', unsafe_allow_html=True)
     
     # Add explanation section
@@ -611,16 +375,8 @@ def main():
         st.info(f"**Selected Stock:** {symbol}")
     with col2:
         # Time period selection
-        period_options = {
-            "1 Month": "1mo",
-            "3 Months": "3mo", 
-            "6 Months": "6mo",
-            "1 Year": "1y",
-            "2 Years": "2y",
-            "5 Years": "5y"
-        }
-        selected_period = st.selectbox("Time Period", list(period_options.keys()))
-        period = period_options[selected_period]
+        selected_period = st.selectbox("Time Period", list(PERIOD_OPTIONS.keys()))
+        period = PERIOD_OPTIONS[selected_period]
     
     # Analysis parameters
     st.subheader("Indicator Parameters")

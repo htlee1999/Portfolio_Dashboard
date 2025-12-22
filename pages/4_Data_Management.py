@@ -5,10 +5,6 @@ from datetime import datetime
 import pandas as pd
 
 from app_utils import (
-    setup_page,
-    inject_css,
-    init_session_state,
-    create_sidebar,
     load_portfolio_data,
     save_portfolio_data,
     load_settings,
@@ -17,23 +13,13 @@ from app_utils import (
     backup_data,
     export_portfolio_to_csv,
     handle_change_password_modal,
+    SUPPORTED_CURRENCIES,
 )
-from auth_utils import init_auth_session, show_user_menu, admin_only, create_user_management_page
+from auth_utils import admin_only, create_user_management_page
+from page_utils import init_protected_page
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access Data Management")
-    st.info("Use the Login page in the sidebar to authenticate")
-    st.stop()
-
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page()
 
 # Handle change password modal
 if handle_change_password_modal():
@@ -96,10 +82,16 @@ with tab2:
     # Edit settings
     st.subheader("Edit Settings")
     
+    current_currency = settings.get("base_currency", "USD")
+    try:
+        currency_index = SUPPORTED_CURRENCIES.index(current_currency)
+    except ValueError:
+        currency_index = 0
+
     new_base_currency = st.selectbox(
         "Base Currency:",
-        ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"],
-        index=0 if settings.get("base_currency", "USD") == "USD" else 1 if settings.get("base_currency", "USD") == "SGD" else 0
+        SUPPORTED_CURRENCIES,
+        index=currency_index
     )
     
     if st.button("💾 Save Settings"):

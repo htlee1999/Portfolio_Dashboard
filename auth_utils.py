@@ -1,9 +1,32 @@
 import streamlit as st
 import hashlib
-import json
 import os
 from datetime import datetime
 from typing import Dict, Optional, Tuple
+from file_utils import load_json, save_json, ensure_parent_directory
+
+# Password validation constants
+MIN_PASSWORD_LENGTH = 6
+
+
+def validate_password(password: str, confirm_password: str = None) -> Tuple[bool, str]:
+    """
+    Validate password against security requirements.
+
+    Args:
+        password: The password to validate
+        confirm_password: Optional confirmation password to match against
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is empty if valid.
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters long"
+
+    if confirm_password is not None and password != confirm_password:
+        return False, "Passwords do not match"
+
+    return True, ""
 
 
 class AuthManager:
@@ -16,8 +39,8 @@ class AuthManager:
     def ensure_users_file_exists(self):
         """Create users file with default admin user if it doesn't exist."""
         if not os.path.exists(self.users_file):
-            os.makedirs(os.path.dirname(self.users_file), exist_ok=True)
-            
+            ensure_parent_directory(self.users_file)
+
             # Create default admin user
             default_users = {
                 "admin": {
@@ -27,9 +50,8 @@ class AuthManager:
                     "last_login": None
                 }
             }
-            
-            with open(self.users_file, 'w') as f:
-                json.dump(default_users, f, indent=2)
+
+            save_json(self.users_file, default_users, show_errors=False)
     
     def _hash_password(self, password: str) -> str:
         """Hash password using SHA-256 with salt."""
@@ -38,16 +60,11 @@ class AuthManager:
     
     def _load_users(self) -> Dict:
         """Load users from file."""
-        try:
-            with open(self.users_file, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-    
+        return load_json(self.users_file, default={})
+
     def _save_users(self, users: Dict):
         """Save users to file."""
-        with open(self.users_file, 'w') as f:
-            json.dump(users, f, indent=2)
+        save_json(self.users_file, users, show_errors=False)
     
     def authenticate_user(self, username: str, password: str) -> Tuple[bool, str]:
         """Authenticate user with username and password."""
@@ -69,13 +86,14 @@ class AuthManager:
     def create_user(self, username: str, password: str, role: str = "user") -> Tuple[bool, str]:
         """Create a new user."""
         users = self._load_users()
-        
+
         if username in users:
             return False, "Username already exists"
-        
-        if len(password) < 6:
-            return False, "Password must be at least 6 characters long"
-        
+
+        is_valid, error_msg = validate_password(password)
+        if not is_valid:
+            return False, error_msg
+
         users[username] = {
             "password_hash": self._hash_password(password),
             "role": role,
@@ -89,17 +107,18 @@ class AuthManager:
     def change_password(self, username: str, old_password: str, new_password: str) -> Tuple[bool, str]:
         """Change user password."""
         users = self._load_users()
-        
+
         if username not in users:
             return False, "User not found"
-        
+
         # Verify old password
         if users[username]["password_hash"] != self._hash_password(old_password):
             return False, "Current password is incorrect"
-        
-        if len(new_password) < 6:
-            return False, "New password must be at least 6 characters long"
-        
+
+        is_valid, error_msg = validate_password(new_password)
+        if not is_valid:
+            return False, error_msg
+
         users[username]["password_hash"] = self._hash_password(new_password)
         self._save_users(users)
         
@@ -196,15 +215,12 @@ def signup_form() -> bool:
             if not username or not password or not confirm_password:
                 st.error("Please fill in all fields")
                 return False
-            
-            if password != confirm_password:
-                st.error("Passwords do not match")
+
+            is_valid, error_msg = validate_password(password, confirm_password)
+            if not is_valid:
+                st.error(error_msg)
                 return False
-            
-            if len(password) < 6:
-                st.error("Password must be at least 6 characters long")
-                return False
-            
+
             auth_manager = AuthManager()
             success, message = auth_manager.create_user(username, password, "user")
             
@@ -253,15 +269,12 @@ def change_password_form() -> bool:
             if not current_password or not new_password or not confirm_password:
                 st.error("Please fill in all fields")
                 return False
-            
-            if new_password != confirm_password:
-                st.error("New passwords do not match")
+
+            is_valid, error_msg = validate_password(new_password, confirm_password)
+            if not is_valid:
+                st.error(error_msg)
                 return False
-            
-            if len(new_password) < 6:
-                st.error("New password must be at least 6 characters long")
-                return False
-            
+
             if current_password == new_password:
                 st.error("New password must be different from current password")
                 return False

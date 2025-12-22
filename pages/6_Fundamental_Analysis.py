@@ -5,8 +5,8 @@ from plotly.subplots import make_subplots
 import yfinance as yf
 
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data, format_currency
-from auth_utils import show_user_menu
+from app_utils import get_stock_data, format_currency
+from page_utils import init_protected_page
 
 
 class FundamentalAnalysis:
@@ -418,12 +418,9 @@ def display_analyst_estimates(analysis):
 
 def main():
     """Main function to run the fundamental analysis page."""
-    setup_page()
-    inject_css()
-    init_session_state()
-    create_sidebar()
-    show_user_menu()
-    
+    # Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+    init_protected_page()
+
     st.markdown('<h1 class="main-header">📊 Fundamental Analysis</h1>', unsafe_allow_html=True)
     
     st.write("Analyze company fundamentals including financial statements, ratios, and key metrics.")

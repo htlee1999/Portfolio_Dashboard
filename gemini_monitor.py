@@ -5,12 +5,12 @@ This module provides comprehensive monitoring and tracking of Gemini API token u
 for the Portfolio Dashboard application.
 """
 
-import json
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 import streamlit as st
+from file_utils import load_json, save_json, ensure_parent_directory
 
 
 @dataclass
@@ -47,25 +47,16 @@ class GeminiUsageMonitor:
     def load_usage_data(self) -> None:
         """Load usage data from JSON file."""
         try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, 'r') as f:
-                    data = json.load(f)
-                    self.usage_data = [TokenUsage(**item) for item in data]
-            else:
-                self.usage_data = []
+            data = load_json(self.data_file, default=[])
+            self.usage_data = [TokenUsage(**item) for item in data]
         except Exception as e:
             st.warning(f"Could not load usage data: {e}")
             self.usage_data = []
-    
+
     def save_usage_data(self) -> None:
         """Save usage data to JSON file."""
-        try:
-            os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
-            with open(self.data_file, 'w') as f:
-                data = [asdict(usage) for usage in self.usage_data]
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            st.error(f"Could not save usage data: {e}")
+        data = [asdict(usage) for usage in self.usage_data]
+        save_json(self.data_file, data)
     
     def calculate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
         """Calculate cost based on token usage."""

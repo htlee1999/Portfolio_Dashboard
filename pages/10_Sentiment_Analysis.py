@@ -10,67 +10,26 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Configure page settings
-st.set_page_config(
-    page_title="Sentiment Analysis",
-    page_icon="💭",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+from app_utils import get_stock_data
+from page_utils import init_protected_page
+from config import SENTIMENT_AVAILABLE, get_serp_api_key, is_serp_api_configured
 
-from app_utils import (
-    setup_page, 
-    inject_css, 
-    init_session_state, 
-    create_sidebar,
-    get_stock_data
-)
-from auth_utils import init_auth_session, show_user_menu
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page(show_login_form=True)
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access Sentiment Analysis")
-    st.info("Use the Login page in the sidebar to authenticate")
-    
-    from auth_utils import login_form
-    login_form()
-    
+# Check for sentiment analysis libraries
+if not SENTIMENT_AVAILABLE:
+    st.error("⚠️ Required libraries not installed. Please run: `pip install -r requirements.txt`")
     st.stop()
 
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
-
-# Import sentiment analysis libraries
-try:
-    from serpapi import GoogleSearch
-    import nltk
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
-    from textblob import TextBlob
-    
-    # Download VADER lexicon if not already present
-    try:
-        nltk.data.find('sentiment/vader_lexicon.zip')
-    except LookupError:
-        with st.spinner("Downloading sentiment analysis data..."):
-            nltk.download('vader_lexicon', quiet=True)
-            nltk.download('punkt', quiet=True)
-    
-    LIBS_AVAILABLE = True
-except ImportError as e:
-    LIBS_AVAILABLE = False
-    st.error(f"⚠️ Required libraries not installed. Please run: `pip install -r requirements.txt`")
-    st.error(f"Error: {str(e)}")
-    st.stop()
+# Import sentiment analysis libraries (safe since SENTIMENT_AVAILABLE is True)
+from serpapi import GoogleSearch
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from textblob import TextBlob
 
 # Check for SERP_API_KEY
-SERP_API_KEY = os.getenv("SERP_API_KEY")
-if not SERP_API_KEY or SERP_API_KEY == "your_serpapi_key_here":
+SERP_API_KEY = get_serp_api_key()
+if not is_serp_api_configured():
     st.error("⚠️ SERP_API_KEY not configured!")
     st.info("""
     To use sentiment analysis, you need to:

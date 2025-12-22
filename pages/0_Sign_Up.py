@@ -1,16 +1,9 @@
 import streamlit as st
-from auth_utils import init_auth_session, signup_form, show_user_menu
-from app_utils import setup_page, inject_css
+from auth_utils import signup_form
+from page_utils import init_public_page
 
-# Use the app's setup functions for consistent styling
-setup_page()
-inject_css()
-
-# Initialize authentication
-init_auth_session()
-
-# Show user menu if already logged in
-show_user_menu()
+# Initialize public page (handles setup, CSS, auth session, user menu)
+init_public_page()
 
 # Main signup page content
 st.markdown('<h1 class="main-header">📝 Create Account</h1>', unsafe_allow_html=True)

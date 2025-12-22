@@ -6,37 +6,22 @@ import pandas as pd
 import streamlit as st
 
 from app_utils import (
-    setup_page,
-    inject_css,
-    init_session_state,
-    create_sidebar,
     format_currency,
     add_holding_to_storage,
     remove_holding_from_storage,
     clear_all_holdings_from_storage,
-    save_settings_to_storage,
     import_portfolio_from_csv,
     export_portfolio_to_csv,
     get_portfolio_stats,
     backup_data,
     handle_change_password_modal,
+    create_currency_selector,
+    SUPPORTED_CURRENCIES,
 )
-from auth_utils import init_auth_session, show_user_menu
+from page_utils import init_protected_page
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access the Portfolio Builder")
-    st.info("Use the Login page in the sidebar to authenticate")
-    st.stop()
-
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page()
 
 # Handle change password modal
 if handle_change_password_modal():
@@ -45,17 +30,10 @@ if handle_change_password_modal():
 st.markdown('<h1 class="main-header">📈 Portfolio Builder</h1>', unsafe_allow_html=True)
 
 # Base currency selection
-st.subheader("Base Currency for Reporting")
-base_currency = st.selectbox(
-    "Select base currency for portfolio reporting:",
-    ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"],
-    index=0 if st.session_state.base_currency == "USD" else 1 if st.session_state.base_currency == "SGD" else 0
+base_currency = create_currency_selector(
+    label="Select base currency for portfolio reporting:",
+    subheader_text="Base Currency for Reporting"
 )
-
-# Save base currency if changed
-if base_currency != st.session_state.base_currency:
-    st.session_state.base_currency = base_currency
-    save_settings_to_storage()
 
 st.markdown("---")
 
@@ -74,7 +52,7 @@ with col1:
         with col_currency:
             currency = st.selectbox(
                 "Currency",
-                ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"],
+                SUPPORTED_CURRENCIES,
                 index=0
             )
         

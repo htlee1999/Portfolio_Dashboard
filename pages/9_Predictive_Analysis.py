@@ -28,84 +28,10 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_sc
 
 # TensorFlow/LSTM functionality removed for stability
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data, format_currency
-from auth_utils import show_user_menu
-
-
-class PredictiveAnalysis:
-    """Comprehensive predictive analysis using scikit-learn models."""
-    
-    def __init__(self, data):
-        """
-        Initialize with price data.
-        
-        Args:
-            data (pd.DataFrame): OHLCV data with columns ['Open', 'High', 'Low', 'Close', 'Volume']
-        """
-        self.data = data.copy()
-        self.prices = data['Close']
-        self.volumes = data['Volume'] if 'Volume' in data.columns else None
-        
-    def calculate_rsi(self, prices, period=14):
-        """Calculate Relative Strength Index."""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-    
-    def prepare_features(self):
-        """Create technical indicators and features for ML models."""
-        df = self.data.copy()
-        
-        # Price-based indicators
-        df['SMA_5'] = df['Close'].rolling(window=5).mean()
-        df['SMA_20'] = df['Close'].rolling(window=20).mean()
-        df['EMA_12'] = df['Close'].ewm(span=12).mean()
-        df['EMA_26'] = df['Close'].ewm(span=26).mean()
-        
-        # Bollinger Bands
-        df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-        bb_std = df['Close'].rolling(window=20).std()
-        df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-        df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-        df['BB_Percent'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
-        
-        # Price ratios
-        df['High_Low_Ratio'] = df['High'] / df['Low']
-        df['Open_Close_Ratio'] = df['Open'] / df['Close']
-        
-        # Momentum indicators
-        df['RSI'] = self.calculate_rsi(df['Close'])
-        
-        # MACD
-        df['MACD'] = df['EMA_12'] - df['EMA_26']
-        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
-        df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
-        
-        # Volume indicators
-        if self.volumes is not None:
-            df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
-            df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
-        else:
-            df['Volume_SMA'] = 1
-            df['Volume_Ratio'] = 1
-        
-        # Price change indicators
-        df['Price_Change_1d'] = df['Close'].pct_change(1)
-        df['Price_Change_5d'] = df['Close'].pct_change(5)
-        df['Price_Change_20d'] = df['Close'].pct_change(20)
-        
-        # Volatility
-        df['Volatility'] = df['Close'].rolling(window=20).std()
-        
-        # Drop rows with NaN values
-        df = df.dropna()
-        
-        return df
+from app_utils import get_stock_data, format_currency
+from technical_indicators import PredictiveAnalysis
+from page_utils import init_protected_page
+from config import PERIOD_OPTIONS, DEFAULT_PERIOD_INDEX
 
 
 class RandomForestModel:
@@ -273,18 +199,9 @@ def create_feature_importance_chart(feature_names, importance_scores):
 def main():
     """Main predictive analysis page."""
     try:
-        setup_page()
-        inject_css()
-        init_session_state()
-        create_sidebar()
-        show_user_menu()
-        
-        # Check authentication
-        if not st.session_state.get("authenticated", False):
-            st.warning("🔐 Please log in to access the Predictive Analysis page")
-            st.info("Use the Login page in the sidebar to authenticate")
-            return
-        
+        # Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+        init_protected_page()
+
         st.markdown('<h1 class="main-header">🤖 Predictive Analysis</h1>', unsafe_allow_html=True)
         
         # Add explanation section
@@ -484,16 +401,8 @@ def main():
             symbol = st.text_input("Stock Symbol", value=symbol, help="Enter a valid stock symbol (e.g., AAPL, MSFT, GOOGL)")
         
         with col2:
-            period_options = {
-                "1 Month": "1mo",
-                "3 Months": "3mo", 
-                "6 Months": "6mo",
-                "1 Year": "1y",
-                "2 Years": "2y",
-                "5 Years": "5y"
-            }
-            selected_period = st.selectbox("Data Period", list(period_options.keys()), index=3)
-            period = period_options[selected_period]
+            selected_period = st.selectbox("Data Period", list(PERIOD_OPTIONS.keys()), index=DEFAULT_PERIOD_INDEX)
+            period = PERIOD_OPTIONS[selected_period]
         
         with col3:
             prediction_days = st.slider("Prediction Horizon (days)", 1, 30, 5)

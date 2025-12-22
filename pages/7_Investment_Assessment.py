@@ -3,39 +3,25 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
-import os
 from typing import Dict, Any, Optional
 
-from app_utils import setup_page, inject_css, init_session_state, create_sidebar, get_stock_data, get_current_price
-from auth_utils import show_user_menu
+from app_utils import get_stock_data, get_current_price
 from data_utils import load_portfolio_data
+from technical_indicators import TechnicalAnalysis
+from page_utils import init_protected_page
+from config import (
+    GEMINI_AVAILABLE, ML_AVAILABLE, SENTIMENT_AVAILABLE, SENTIMENT_ENABLED,
+    get_serp_api_key, get_gemini_api_key, PERIOD_OPTIONS
+)
 
-# Import analysis classes from other pages
-# We'll define simplified versions of the analysis classes here
-# to avoid complex import issues in Streamlit pages
-
-try:
+# Import optional dependencies only if available
+if GEMINI_AVAILABLE:
     from google import genai
-    from dotenv import load_dotenv
-    GEMINI_AVAILABLE = True
-    # Load environment variables from .env file
-    load_dotenv()
-except ImportError:
-    GEMINI_AVAILABLE = False
-    st.warning("⚠️ Google Gemini or python-dotenv not installed. Please install with: pip install google-genai python-dotenv")
 
-# Import machine learning libraries for predictive analysis
-try:
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-    from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-    from sklearn.svm import SVR, SVC
-    from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
-    ML_AVAILABLE = True
-except ImportError:
-    ML_AVAILABLE = False
-    st.warning("⚠️ Scikit-learn not installed. Please install with: pip install scikit-learn")
+if SENTIMENT_AVAILABLE:
+    from serpapi import GoogleSearch
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    from textblob import TextBlob
 
 # Import monitoring utilities
 try:
@@ -44,133 +30,8 @@ try:
 except ImportError:
     MONITORING_AVAILABLE = False
 
-# Import sentiment analysis utilities
-try:
-    from serpapi import GoogleSearch
-    import nltk
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
-    from textblob import TextBlob
-    SENTIMENT_AVAILABLE = True
-    
-    # Download VADER lexicon if not already present
-    try:
-        nltk.data.find('sentiment/vader_lexicon.zip')
-    except LookupError:
-        try:
-            nltk.download('vader_lexicon', quiet=True)
-            nltk.download('punkt', quiet=True)
-        except:
-            pass
-except ImportError:
-    SENTIMENT_AVAILABLE = False
-
-# Check for SERP_API_KEY
-SERP_API_KEY = os.getenv("SERP_API_KEY")
-SENTIMENT_ENABLED = SENTIMENT_AVAILABLE and SERP_API_KEY and SERP_API_KEY != "your_serpapi_key_here"
-
-
-class TechnicalAnalysis:
-    """Simplified technical analysis class for assessment."""
-    
-    def __init__(self, data):
-        self.data = data.copy()
-        self.prices = data['Close']
-        self.volumes = data['Volume'] if 'Volume' in data.columns else None
-    
-    def calculate_rsi(self, period=14):
-        """Calculate RSI."""
-        delta = self.prices.diff()
-        gains = delta.where(delta > 0, 0)
-        losses = -delta.where(delta < 0, 0)
-        
-        avg_gains = gains.ewm(span=period, min_periods=period).mean()
-        avg_losses = losses.ewm(span=period, min_periods=period).mean()
-        
-        rs = avg_gains / avg_losses
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-    
-    def calculate_macd(self, fast_period=12, slow_period=26, signal_period=9):
-        """Calculate MACD."""
-        ema_fast = self.prices.ewm(span=fast_period, min_periods=fast_period).mean()
-        ema_slow = self.prices.ewm(span=slow_period, min_periods=slow_period).mean()
-        
-        macd_line = ema_fast - ema_slow
-        signal_line = macd_line.ewm(span=signal_period, min_periods=signal_period).mean()
-        histogram = macd_line - signal_line
-        
-        return macd_line, signal_line, histogram
-    
-    def calculate_bollinger_bands(self, period=20, std_dev=2):
-        """Calculate Bollinger Bands."""
-        middle_band = self.prices.rolling(window=period).mean()
-        rolling_std = self.prices.rolling(window=period).std()
-        
-        upper_band = middle_band + (rolling_std * std_dev)
-        lower_band = middle_band - (rolling_std * std_dev)
-        bb_percent = (self.prices - lower_band) / (upper_band - lower_band)
-        band_width = (upper_band - lower_band) / middle_band
-        
-        return upper_band, middle_band, lower_band, bb_percent, band_width
-    
-    def calculate_moving_averages(self, periods=[5, 10, 20, 50]):
-        """Calculate Moving Averages."""
-        mas = {}
-        for period in periods:
-            mas[f'SMA_{period}'] = self.prices.rolling(window=period).mean()
-            mas[f'EMA_{period}'] = self.prices.ewm(span=period, min_periods=period).mean()
-        return mas
-    
-    def calculate_obv(self):
-        """Calculate OBV."""
-        if self.volumes is None:
-            return pd.Series(index=self.prices.index, dtype=float)
-        
-        obv = [0]
-        for i in range(1, len(self.prices)):
-            if self.prices.iloc[i] > self.prices.iloc[i-1]:
-                obv.append(obv[-1] + self.volumes.iloc[i])
-            elif self.prices.iloc[i] < self.prices.iloc[i-1]:
-                obv.append(obv[-1] - self.volumes.iloc[i])
-            else:
-                obv.append(obv[-1])
-        
-        return pd.Series(obv, index=self.prices.index)
-    
-    def get_signals(self):
-        """Get trading signals."""
-        signals = {}
-        
-        # RSI Signals
-        rsi = self.calculate_rsi()
-        signals['rsi'] = {
-            'overbought': rsi > 70,
-            'oversold': rsi < 30,
-            'neutral': (rsi >= 30) & (rsi <= 70),
-            'current_value': rsi.iloc[-1] if not rsi.empty else None
-        }
-        
-        # MACD Signals
-        macd_line, signal_line, histogram = self.calculate_macd()
-        signals['macd'] = {
-            'bullish_crossover': (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1)),
-            'bearish_crossover': (macd_line < signal_line) & (macd_line.shift(1) >= signal_line.shift(1)),
-            'above_signal': macd_line > signal_line,
-            'current_macd': macd_line.iloc[-1] if not macd_line.empty else None,
-            'current_signal': signal_line.iloc[-1] if not signal_line.empty else None
-        }
-        
-        # Bollinger Bands Signals
-        upper_bb, middle_bb, lower_bb, bb_percent, band_width = self.calculate_bollinger_bands()
-        signals['bollinger'] = {
-            'above_upper': self.prices > upper_bb,
-            'below_lower': self.prices < lower_bb,
-            'squeeze': band_width < band_width.rolling(20).mean() * 0.5,
-            'current_bb_percent': bb_percent.iloc[-1] if not bb_percent.empty else None,
-            'current_band_width': band_width.iloc[-1] if not band_width.empty else None
-        }
-        
-        return signals
+# Get API key for sentiment analysis
+SERP_API_KEY = get_serp_api_key()
 
 
 class SentimentAnalysis:
@@ -858,7 +719,7 @@ class InvestmentAssessment:
             return None
         
         # Check if Gemini API key is available
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        gemini_api_key = get_gemini_api_key()
         if not gemini_api_key:
             st.warning("⚠️ Google Gemini API key not found. Please:")
             st.markdown("""
@@ -1819,17 +1680,9 @@ class InvestmentAssessment:
 
 def main():
     """Main function to run the investment assessment page."""
-    setup_page()
-    inject_css()
-    init_session_state()
-    create_sidebar()
-    
-    # Check authentication
-    if not st.session_state.get("authenticated", False):
-        st.warning("🔐 Please log in to access the Investment Assessment page")
-        st.info("Use the Login page in the sidebar to authenticate")
-        return
-    
+    # Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+    init_protected_page()
+
     # Main page interface
     st.markdown('<h1 class="main-header">🎯 Investment Assessment</h1>', unsafe_allow_html=True)
     
@@ -1851,16 +1704,8 @@ def main():
         st.info(f"**Selected Stock:** {symbol}")
     with col2:
         # Time period selection
-        period_options = {
-            "1 Month": "1mo",
-            "3 Months": "3mo", 
-            "6 Months": "6mo",
-            "1 Year": "1y",
-            "2 Years": "2y",
-            "5 Years": "5y"
-        }
-        selected_period = st.selectbox("Time Period", list(period_options.keys()))
-        period = period_options[selected_period]
+        selected_period = st.selectbox("Time Period", list(PERIOD_OPTIONS.keys()))
+        period = PERIOD_OPTIONS[selected_period]
     with col3:
         # Sentiment analysis option
         if SENTIMENT_ENABLED:
@@ -1877,7 +1722,7 @@ def main():
         st.error("⚠️ Required packages not installed")
         st.code("pip install google-genai python-dotenv")
     else:
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        gemini_api_key = get_gemini_api_key()
         if not gemini_api_key:
             st.warning("⚠️ Gemini API key not found")
             st.markdown("""
@@ -1895,9 +1740,6 @@ def main():
     # Run assessment button
     assess_clicked = st.button("🚀 Run Assessment", type="primary", use_container_width=True)
     auto_assess = st.session_state.get('auto_assess', False)
-    
-    # Add user menu after assessment settings
-    show_user_menu()
     
     if assess_clicked or auto_assess:
         if auto_assess:

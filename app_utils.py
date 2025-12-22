@@ -10,6 +10,35 @@ from data_utils import (
 )
 
 
+def apply_chart_style(fig, title: str, height: int = 500,
+                      xaxis_title: str = "Date", yaxis_title: str = None,
+                      show_legend: bool = True) -> None:
+    """
+    Apply consistent styling to Plotly figures.
+
+    Args:
+        fig: Plotly figure object
+        title: Chart title
+        height: Chart height in pixels (default: 500)
+        xaxis_title: X-axis label (default: "Date")
+        yaxis_title: Y-axis label (optional)
+        show_legend: Whether to show legend (default: True)
+    """
+    layout_kwargs = {
+        "title": title,
+        "height": height,
+        "showlegend": show_legend,
+        "hovermode": "x unified"
+    }
+
+    if xaxis_title:
+        layout_kwargs["xaxis_title"] = xaxis_title
+    if yaxis_title:
+        layout_kwargs["yaxis_title"] = yaxis_title
+
+    fig.update_layout(**layout_kwargs)
+
+
 def setup_page() -> None:
     """Configure Streamlit page settings."""
     st.set_page_config(
@@ -579,6 +608,51 @@ def save_settings_to_storage() -> bool:
     except Exception as e:
         st.error(f"Error saving settings: {str(e)}")
         return False
+
+
+# Supported currencies for the application
+SUPPORTED_CURRENCIES = ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"]
+
+
+def create_currency_selector(label: str = "Select base currency:",
+                             show_subheader: bool = True,
+                             subheader_text: str = "Base Currency",
+                             auto_save: bool = True) -> str:
+    """
+    Create a reusable currency selection dropdown.
+
+    Args:
+        label: Label for the selectbox
+        show_subheader: Whether to show a subheader above the dropdown
+        subheader_text: Text for the subheader
+        auto_save: Whether to auto-save when currency changes
+
+    Returns:
+        str: The selected currency code
+    """
+    if show_subheader:
+        st.subheader(subheader_text)
+
+    current_currency = st.session_state.get("base_currency", "USD")
+
+    # Find the index of the current currency
+    try:
+        current_index = SUPPORTED_CURRENCIES.index(current_currency)
+    except ValueError:
+        current_index = 0
+
+    selected_currency = st.selectbox(
+        label,
+        SUPPORTED_CURRENCIES,
+        index=current_index
+    )
+
+    # Save if changed and auto_save is enabled
+    if auto_save and selected_currency != current_currency:
+        st.session_state.base_currency = selected_currency
+        save_settings_to_storage()
+
+    return selected_currency
 
 
 def add_holding_to_storage(symbol: str, quantity: float, purchase_price: float, 

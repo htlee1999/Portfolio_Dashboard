@@ -73,25 +73,38 @@ This module provides comprehensive technical analysis capabilities for the Portf
 
 ### TechnicalAnalysis Class
 
-The core functionality is implemented in the `TechnicalAnalysis` class with the following methods:
+The core functionality is implemented in the `TechnicalAnalysis` class located in `technical_indicators.py`. This consolidated module is shared across multiple pages (Technical Analysis, Investment Assessment, Predictive Analysis).
 
 ```python
+from technical_indicators import TechnicalAnalysis
+
 # Initialize with OHLCV data
 ta = TechnicalAnalysis(data)
 
 # Calculate individual indicators
 rsi = ta.calculate_rsi(period=14)
-macd_line, signal_line, histogram = ta.calculate_macd()
-upper_bb, middle_bb, lower_bb, bb_percent, band_width = ta.calculate_bollinger_bands()
-mas = ta.calculate_moving_averages()
+macd_line, signal_line, histogram = ta.calculate_macd(fast_period=12, slow_period=26, signal_period=9)
+upper_bb, middle_bb, lower_bb, bb_percent, band_width = ta.calculate_bollinger_bands(period=20, std_dev=2)
+mas = ta.calculate_moving_averages(periods=[5, 10, 20, 50])
 obv = ta.calculate_obv()
 
 # Get trading signals
-signals = ta.get_signals()
+signals = ta.get_signals(indicators=['rsi', 'macd', 'bollinger', 'moving_averages', 'obv'])
 
 # Add all indicators to data
 data_with_indicators = ta.add_all_indicators()
 ```
+
+For machine learning feature preparation, use the `PredictiveAnalysis` class:
+
+```python
+from technical_indicators import PredictiveAnalysis
+
+pa = PredictiveAnalysis(data)
+features_df = pa.prepare_features()  # Returns DataFrame with all ML features
+```
+
+See [Code Architecture](CODE_ARCHITECTURE.md) for more details on the module structure.
 
 ### Signal Generation
 

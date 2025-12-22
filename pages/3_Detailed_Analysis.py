@@ -6,33 +6,18 @@ import pandas as pd
 import numpy as np
 
 from app_utils import (
-    setup_page,
-    inject_css,
-    init_session_state,
-    create_sidebar,
     get_benchmark_data,
     get_stock_data,
     calculate_portfolio_metrics,
     format_currency,
-    save_settings_to_storage,
+    create_currency_selector,
     handle_change_password_modal,
 )
-from auth_utils import init_auth_session, show_user_menu
+from page_utils import init_protected_page
+from config import PERIOD_LIST, DEFAULT_PERIOD_INDEX
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access the Detailed Analysis")
-    st.info("Use the Login page in the sidebar to authenticate")
-    st.stop()
-
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page()
 
 # Handle change password modal
 if handle_change_password_modal():
@@ -45,21 +30,14 @@ if st.session_state.portfolio.empty:
     st.stop()
 
 # Base currency selection
-st.subheader("Base Currency for Analysis")
-base_currency = st.selectbox(
-    "Select base currency for analysis:",
-    ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"],
-    index=0 if st.session_state.base_currency == "USD" else 1 if st.session_state.base_currency == "SGD" else 0
+base_currency = create_currency_selector(
+    label="Select base currency for analysis:",
+    subheader_text="Base Currency for Analysis"
 )
-
-# Save base currency if changed
-if base_currency != st.session_state.base_currency:
-    st.session_state.base_currency = base_currency
-    save_settings_to_storage()
 
 st.markdown("---")
 
-period = st.selectbox("Select Analysis Period:", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
+period = st.selectbox("Select Analysis Period:", PERIOD_LIST, index=DEFAULT_PERIOD_INDEX)
 
 metrics = calculate_portfolio_metrics(st.session_state.portfolio, base_currency)
 if not metrics:
@@ -74,11 +52,9 @@ if benchmark_data is not None and not benchmark_data.empty:
     portfolio_symbols = st.session_state.portfolio["Symbol"].unique()
 
     fig = make_subplots(
-        rows=2,
+        rows=1,
         cols=1,
-        subplot_titles=("Portfolio vs S&P 500", "Volume"),
-        vertical_spacing=0.1,
-        row_width=[0.7, 0.3],
+        subplot_titles=("Portfolio vs S&P 500",),
     )
 
     benchmark_normalized = (benchmark_data["Close"] / benchmark_data["Close"].iloc[0]) * 100
@@ -104,7 +80,7 @@ if benchmark_data is not None and not benchmark_data.empty:
                 col=1,
             )
 
-    fig.update_layout(height=600, title_text="Portfolio Performance Analysis", showlegend=True)
+    fig.update_layout(height=450, title_text="Portfolio Performance Analysis", showlegend=True)
     fig.update_xaxes(title_text="Date")
     fig.update_yaxes(title_text="Normalized Performance (%)", row=1, col=1)
 

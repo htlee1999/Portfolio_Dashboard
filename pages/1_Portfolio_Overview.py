@@ -2,46 +2,17 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Configure page settings to prevent navigation duplication
-st.set_page_config(
-    page_title="Portfolio Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 from app_utils import (
-    setup_page, 
-    inject_css, 
-    init_session_state, 
-    create_sidebar, 
-    calculate_portfolio_metrics, 
-    format_currency, 
-    save_settings_to_storage, 
+    calculate_portfolio_metrics,
+    format_currency,
+    create_currency_selector,
     handle_change_password_modal
 )
 from data_utils import load_portfolio_data
-from auth_utils import init_auth_session, show_user_menu
+from page_utils import init_protected_page
 
-# Initialize authentication
-init_auth_session()
-
-# Check authentication
-if not st.session_state.get("authenticated", False):
-    st.warning("🔐 Please log in to access the Portfolio Dashboard")
-    st.info("Use the Login page in the sidebar to authenticate")
-    
-    # Show login form
-    from auth_utils import login_form
-    login_form()
-    
-    st.stop()
-
-setup_page()
-inject_css()
-init_session_state()
-create_sidebar()
-show_user_menu()
+# Initialize protected page (handles auth, setup, CSS, sidebar, user menu)
+init_protected_page(show_login_form=True)
 
 # Reload portfolio data for current user
 if st.session_state.get("authenticated", False):
@@ -55,17 +26,10 @@ if handle_change_password_modal():
 st.markdown('<h1 class="main-header">📊 Portfolio Overview</h1>', unsafe_allow_html=True)
 
 # Base currency selection
-st.subheader("Base Currency for Reporting")
-base_currency = st.selectbox(
-    "Select base currency for portfolio reporting:",
-    ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"],
-    index=0 if st.session_state.base_currency == "USD" else 1 if st.session_state.base_currency == "SGD" else 0
+base_currency = create_currency_selector(
+    label="Select base currency for portfolio reporting:",
+    subheader_text="Base Currency for Reporting"
 )
-
-# Save base currency if changed
-if base_currency != st.session_state.base_currency:
-    st.session_state.base_currency = base_currency
-    save_settings_to_storage()
 
 st.markdown("---")
 
