@@ -9,14 +9,18 @@ import streamlit as st
 from typing import Any, Optional
 
 
-def ensure_directory(path: str) -> None:
+def ensure_directory(path: str) -> str:
     """
     Ensure a directory exists, creating it if necessary.
 
     Args:
         path: Directory path to ensure exists
+
+    Returns:
+        The path that was ensured to exist
     """
     os.makedirs(path, exist_ok=True)
+    return path
 
 
 def ensure_parent_directory(file_path: str) -> None:

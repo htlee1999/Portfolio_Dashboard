@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
+from config import SUPPORTED_CURRENCIES, get_file_timestamp
 from data_utils import (
     load_portfolio_data, save_portfolio_data, load_settings, save_settings,
     add_holding, remove_holding, clear_all_holdings,
@@ -553,36 +554,27 @@ def convert_currency(amount: float, from_currency: str, to_currency: str) -> flo
     """Convert amount from one currency to another."""
     if from_currency == to_currency:
         return amount
-    
+
     exchange_rate = get_exchange_rate(from_currency, to_currency)
     return amount * exchange_rate
 
 
+# Currency symbols for formatting
+CURRENCY_SYMBOLS = {
+    "USD": "$", "SGD": "S$", "EUR": "€", "GBP": "£", "JPY": "¥",
+    "CAD": "C$", "AUD": "A$", "HKD": "HK$", "CNY": "¥", "INR": "₹",
+    "KRW": "₩", "THB": "฿", "MYR": "RM", "IDR": "Rp", "PHP": "₱", "VND": "₫"
+}
+
+# Currencies that don't use decimal places
+NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND"}
+
+
 def format_currency(amount: float, currency: str) -> str:
     """Format amount with appropriate currency symbol and formatting."""
-    currency_symbols = {
-        "USD": "$",
-        "SGD": "S$",
-        "EUR": "€",
-        "GBP": "£",
-        "JPY": "¥",
-        "CAD": "C$",
-        "AUD": "A$",
-        "HKD": "HK$",
-        "CNY": "¥",
-        "INR": "₹",
-        "KRW": "₩",
-        "THB": "฿",
-        "MYR": "RM",
-        "IDR": "Rp",
-        "PHP": "₱",
-        "VND": "₫"
-    }
-    
-    symbol = currency_symbols.get(currency, currency)
-    
-    if currency in ["JPY", "KRW", "IDR", "VND"]:
-        # No decimal places for these currencies
+    symbol = CURRENCY_SYMBOLS.get(currency, currency)
+
+    if currency in NO_DECIMAL_CURRENCIES:
         return f"{symbol}{amount:,.0f}"
     else:
         return f"{symbol}{amount:,.2f}"
@@ -608,10 +600,6 @@ def save_settings_to_storage() -> bool:
     except Exception as e:
         st.error(f"Error saving settings: {str(e)}")
         return False
-
-
-# Supported currencies for the application
-SUPPORTED_CURRENCIES = ["USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD", "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"]
 
 
 def create_currency_selector(label: str = "Select base currency:",
@@ -724,16 +712,15 @@ def generate_ai_report_pdf(assessment_result: dict, symbol: str, technical_summa
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
         from datetime import datetime
         import os
-        
+
         # Create exports directory
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         exports_dir = os.path.join(data_dir, "exports")
         if not os.path.exists(exports_dir):
             os.makedirs(exports_dir)
-        
+
         # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"ai_report_{symbol}_{timestamp}.pdf"
+        filename = f"ai_report_{symbol}_{get_file_timestamp()}.pdf"
         file_path = os.path.join(exports_dir, filename)
         
         # Create PDF document

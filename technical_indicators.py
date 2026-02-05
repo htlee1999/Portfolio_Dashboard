@@ -247,26 +247,8 @@ class PredictiveAnalysis:
         self.data = data.copy()
         self.prices = data['Close']
         self.volumes = data['Volume'] if 'Volume' in data.columns else None
-
-    def calculate_rsi(self, prices, period=14):
-        """
-        Calculate Relative Strength Index using rolling mean method.
-
-        Args:
-            prices (pd.Series): Price series to calculate RSI for
-            period (int): RSI calculation period (default: 14)
-
-        Returns:
-            pd.Series: RSI values
-        """
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-
-        return rsi
+        # Reuse TechnicalAnalysis for indicator calculations
+        self._ta = TechnicalAnalysis(data)
 
     def prepare_features(self):
         """
@@ -294,8 +276,8 @@ class PredictiveAnalysis:
         df['High_Low_Ratio'] = df['High'] / df['Low']
         df['Open_Close_Ratio'] = df['Open'] / df['Close']
 
-        # Momentum indicators
-        df['RSI'] = self.calculate_rsi(df['Close'])
+        # Momentum indicators (reuse TechnicalAnalysis RSI calculation)
+        df['RSI'] = self._ta.calculate_rsi()
 
         # MACD
         df['MACD'] = df['EMA_12'] - df['EMA_26']

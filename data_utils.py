@@ -4,14 +4,14 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import streamlit as st
+from config import PORTFOLIO_COLUMNS, get_iso_timestamp, get_file_timestamp
+from file_utils import ensure_directory
 
 
 def ensure_data_directory() -> str:
     """Ensure the data directory exists and return its path."""
     data_dir = os.path.join(os.getcwd(), "data")
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    return data_dir
+    return ensure_directory(data_dir)
 
 
 def get_portfolio_file_path(username: str = None) -> str:
@@ -35,21 +35,20 @@ def load_portfolio_data(username: str = None) -> pd.DataFrame:
     
     if not os.path.exists(file_path):
         # Return empty DataFrame with correct columns if file doesn't exist
-        return pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
+        return pd.DataFrame(columns=PORTFOLIO_COLUMNS)
     
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         if not data or 'holdings' not in data:
-            return pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
+            return pd.DataFrame(columns=PORTFOLIO_COLUMNS)
         
         # Convert to DataFrame
         df = pd.DataFrame(data['holdings'])
         
         # Ensure all required columns exist
-        required_columns = ["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"]
-        for col in required_columns:
+        for col in PORTFOLIO_COLUMNS:
             if col not in df.columns:
                 df[col] = "USD" if col == "Currency" else None
         
@@ -61,7 +60,7 @@ def load_portfolio_data(username: str = None) -> pd.DataFrame:
         
     except (json.JSONDecodeError, KeyError, Exception) as e:
         st.error(f"Error loading portfolio data: {str(e)}")
-        return pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
+        return pd.DataFrame(columns=PORTFOLIO_COLUMNS)
 
 
 def save_portfolio_data(portfolio_df: pd.DataFrame, username: str = None) -> bool:
@@ -71,7 +70,7 @@ def save_portfolio_data(portfolio_df: pd.DataFrame, username: str = None) -> boo
         
         # Convert DataFrame to dictionary format
         data = {
-            "last_updated": datetime.now().isoformat(),
+            "last_updated": get_iso_timestamp(),
             "username": username,
             "holdings": portfolio_df.to_dict('records')
         }
@@ -98,7 +97,7 @@ def load_settings() -> Dict[str, Any]:
         # Return default settings if file doesn't exist
         return {
             "base_currency": "USD",
-            "last_updated": datetime.now().isoformat()
+            "last_updated": get_iso_timestamp()
         }
     
     try:
@@ -108,7 +107,7 @@ def load_settings() -> Dict[str, Any]:
         st.warning(f"Error loading settings: {str(e)}. Using default settings.")
         return {
             "base_currency": "USD",
-            "last_updated": datetime.now().isoformat()
+            "last_updated": get_iso_timestamp()
         }
 
 
@@ -116,9 +115,9 @@ def save_settings(settings: Dict[str, Any]) -> bool:
     """Save application settings to JSON file."""
     try:
         file_path = get_settings_file_path()
-        
+
         # Add timestamp
-        settings["last_updated"] = datetime.now().isoformat()
+        settings["last_updated"] = get_iso_timestamp()
         
         # Ensure data directory exists
         ensure_data_directory()
@@ -184,7 +183,7 @@ def clear_all_holdings(username: str = None) -> bool:
     """Clear all holdings from the portfolio for a specific user."""
     try:
         # Create empty portfolio
-        empty_portfolio = pd.DataFrame(columns=["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"])
+        empty_portfolio = pd.DataFrame(columns=PORTFOLIO_COLUMNS)
         
         # Save empty portfolio
         return save_portfolio_data(empty_portfolio, username)
@@ -209,8 +208,7 @@ def export_portfolio_to_csv() -> str:
             os.makedirs(export_dir)
         
         # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"portfolio_export_{timestamp}.csv"
+        filename = f"portfolio_export_{get_file_timestamp()}.csv"
         file_path = os.path.join(export_dir, filename)
         
         # Export to CSV
@@ -297,8 +295,7 @@ def backup_data() -> str:
             os.makedirs(backup_dir)
         
         # Generate backup filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_filename = f"portfolio_backup_{timestamp}.json"
+        backup_filename = f"portfolio_backup_{get_file_timestamp()}.json"
         backup_path = os.path.join(backup_dir, backup_filename)
         
         # Create backup data
@@ -308,7 +305,7 @@ def backup_data() -> str:
         backup_data = {
             "portfolio": portfolio_df.to_dict('records'),
             "settings": settings,
-            "backup_created": datetime.now().isoformat()
+            "backup_created": get_iso_timestamp()
         }
         
         # Save backup

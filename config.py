@@ -4,6 +4,8 @@ Contains API keys, feature availability flags, and shared constants.
 """
 
 import os
+from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -14,12 +16,12 @@ load_dotenv()
 # API KEY RETRIEVAL
 # =============================================================================
 
-def get_serp_api_key() -> str | None:
+def get_serp_api_key() -> Optional[str]:
     """Get SERP API key from environment."""
     return os.getenv("SERP_API_KEY")
 
 
-def get_gemini_api_key() -> str | None:
+def get_gemini_api_key() -> Optional[str]:
     """Get Gemini API key from environment."""
     return os.environ.get("GEMINI_API_KEY")
 
@@ -87,6 +89,15 @@ SENTIMENT_ENABLED = SENTIMENT_AVAILABLE and is_serp_api_configured()
 # SHARED CONSTANTS
 # =============================================================================
 
+# Portfolio DataFrame column schema
+PORTFOLIO_COLUMNS = ["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"]
+
+# Supported currencies for the application
+SUPPORTED_CURRENCIES = [
+    "USD", "SGD", "EUR", "GBP", "JPY", "CAD", "AUD", "HKD",
+    "CNY", "INR", "KRW", "THB", "MYR", "IDR", "PHP", "VND"
+]
+
 # Analysis period options (display label -> yfinance period code)
 PERIOD_OPTIONS = {
     "1 Month": "1mo",
@@ -102,3 +113,16 @@ PERIOD_LIST = ["1mo", "3mo", "6mo", "1y", "2y", "5y"]
 
 # Default period index (1 Year)
 DEFAULT_PERIOD_INDEX = 3
+
+
+# =============================================================================
+# TIMESTAMP HELPERS
+# =============================================================================
+
+def get_iso_timestamp() -> str:
+    """Get current timestamp in ISO format."""
+    return datetime.now().isoformat()
+
+def get_file_timestamp() -> str:
+    """Get current timestamp formatted for filenames (YYYYMMDD_HHMMSS)."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
