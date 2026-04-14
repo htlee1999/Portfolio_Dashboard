@@ -6,7 +6,7 @@ import yfinance as yf
 from typing import Dict, Any, Optional
 
 from app_utils import get_stock_data, get_current_price
-from data_utils import load_portfolio_data
+from data_utils import load_portfolio_data, save_recommendation_record
 from technical_indicators import TechnicalAnalysis
 from page_utils import init_protected_page
 from config import (
@@ -17,6 +17,10 @@ from config import (
 # Import optional dependencies only if available
 if GEMINI_AVAILABLE:
     from google import genai
+
+if ML_AVAILABLE:
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
 
 if SENTIMENT_AVAILABLE:
     from serpapi import GoogleSearch
@@ -1081,6 +1085,32 @@ class InvestmentAssessment:
                     self.assessment_result = self.generate_ai_assessment(technical_summary, fundamental_summary, self.portfolio_context, predictive_summary, sentiment_summary)
             
             if self.assessment_result:
+                # Save recommendation to history
+                if st.session_state.get("_last_saved_assessment") != id(self.assessment_result):
+                    portfolio_snapshot = None
+                    if self.portfolio_context:
+                        portfolio_snapshot = {
+                            "avg_purchase_price": self.portfolio_context.get('average_purchase_price'),
+                            "total_quantity": self.portfolio_context.get('total_quantity'),
+                            "unrealized_pct": self.portfolio_context.get('unrealized_gain_loss_pct'),
+                        }
+                    record = {
+                        "timestamp": pd.Timestamp.now().isoformat(),
+                        "symbol": self.symbol,
+                        "recommendation": self.assessment_result.get('recommendation', 'HOLD'),
+                        "confidence": self.assessment_result.get('confidence', 5),
+                        "price_at_signal": technical_summary.get('current_price'),
+                        "price_target": self.assessment_result.get('price_target'),
+                        "time_horizon": self.assessment_result.get('time_horizon', 'Medium-term'),
+                        "strengths": self.assessment_result.get('strengths', []),
+                        "risks": self.assessment_result.get('risks', []),
+                        "reasoning": self.assessment_result.get('reasoning', ''),
+                        "portfolio_context": portfolio_snapshot,
+                    }
+                    username = st.session_state.get("username")
+                    save_recommendation_record(record, username)
+                    st.session_state["_last_saved_assessment"] = id(self.assessment_result)
+
                 # Display recommendation with color coding
                 recommendation = self.assessment_result.get('recommendation', 'HOLD')
                 confidence = self.assessment_result.get('confidence', 5)

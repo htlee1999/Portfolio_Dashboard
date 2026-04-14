@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import streamlit as st
 from config import PORTFOLIO_COLUMNS, get_iso_timestamp, get_file_timestamp
-from file_utils import ensure_directory
+from file_utils import ensure_directory, load_json, save_json
 
 
 def ensure_data_directory() -> str:
@@ -317,3 +317,34 @@ def backup_data() -> str:
     except Exception as e:
         st.error(f"Error creating backup: {str(e)}")
         return None
+
+
+# =============================================================================
+# RECOMMENDATION HISTORY
+# =============================================================================
+
+def get_recommendation_history_file_path(username: str = None) -> str:
+    """Get the path to the recommendation history JSON file for a specific user."""
+    data_dir = ensure_data_directory()
+    if username:
+        return os.path.join(data_dir, f"recommendation_history_{username}.json")
+    else:
+        return os.path.join(data_dir, "recommendation_history.json")
+
+
+def load_recommendation_history(username: str = None) -> List[Dict]:
+    """Load recommendation history from JSON file."""
+    file_path = get_recommendation_history_file_path(username)
+    return load_json(file_path, default=[])
+
+
+def save_recommendation_record(record: Dict[str, Any], username: str = None) -> bool:
+    """Append a recommendation record to the history file."""
+    try:
+        history = load_recommendation_history(username)
+        history.append(record)
+        file_path = get_recommendation_history_file_path(username)
+        return save_json(file_path, history)
+    except Exception as e:
+        st.error(f"Error saving recommendation record: {str(e)}")
+        return False
