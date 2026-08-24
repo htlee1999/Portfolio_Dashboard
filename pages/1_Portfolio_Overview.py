@@ -38,13 +38,33 @@ if st.session_state.portfolio.empty:
 else:
     st.subheader("Portfolio Snapshot")
     
-    # Calculate portfolio metrics
-    metrics = calculate_portfolio_metrics(st.session_state.portfolio, base_currency)
+    # Calculate portfolio metrics (with a progress bar so a cold/slow fetch
+    # shows visible progress instead of a blank, seemingly-frozen page).
+    metrics = calculate_portfolio_metrics(
+        st.session_state.portfolio, base_currency, show_progress=True
+    )
     
-    if not metrics:
-        st.error("Unable to calculate portfolio metrics. Please check your stock symbols.")
+    if not metrics or "total_invested" not in metrics:
+        unpriced = metrics.get("unpriced_symbols", []) if metrics else []
+        if unpriced:
+            st.error(
+                "Unable to fetch prices for any holdings: "
+                f"{', '.join(unpriced)}. Yahoo Finance may be down or rate-limiting, "
+                "and the Finnhub fallback did not return data. Please try again shortly."
+            )
+        else:
+            st.error("Unable to calculate portfolio metrics. Please check your stock symbols.")
         st.stop()
-    
+
+    # Warn if some (but not all) holdings could not be priced — their value is
+    # excluded from the totals below, so the numbers would otherwise be silently low.
+    unpriced = metrics.get("unpriced_symbols", [])
+    if unpriced:
+        st.warning(
+            f"⚠️ Could not fetch prices for: {', '.join(unpriced)}. "
+            "These holdings are excluded from the totals below."
+        )
+
     # Key Metrics Row
     col1, col2, col3, col4 = st.columns(4)
 

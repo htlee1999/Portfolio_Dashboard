@@ -40,9 +40,23 @@ st.markdown("---")
 period = st.selectbox("Select Analysis Period:", PERIOD_LIST, index=DEFAULT_PERIOD_INDEX)
 
 metrics = calculate_portfolio_metrics(st.session_state.portfolio, base_currency)
-if not metrics:
-    st.error("Unable to calculate portfolio metrics.")
+if not metrics or "total_invested" not in metrics:
+    unpriced = metrics.get("unpriced_symbols", []) if metrics else []
+    if unpriced:
+        st.error(
+            f"Unable to fetch prices for any holdings: {', '.join(unpriced)}. "
+            "Yahoo Finance may be down or rate-limiting. Please try again shortly."
+        )
+    else:
+        st.error("Unable to calculate portfolio metrics.")
     st.stop()
+
+unpriced = metrics.get("unpriced_symbols", [])
+if unpriced:
+    st.warning(
+        f"⚠️ Could not fetch prices for: {', '.join(unpriced)}. "
+        "These holdings are excluded from the analysis below."
+    )
 
 
 st.subheader("Portfolio Performance vs S&P 500")

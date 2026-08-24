@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import streamlit as st
-from config import PORTFOLIO_COLUMNS, get_iso_timestamp, get_file_timestamp
+from config import PORTFOLIO_COLUMNS, get_iso_timestamp, get_file_timestamp, normalize_symbol
 from file_utils import ensure_directory, load_json, save_json
 
 
@@ -140,9 +140,9 @@ def add_holding(symbol: str, quantity: float, purchase_price: float,
         # Load current portfolio
         portfolio_df = load_portfolio_data(username)
         
-        # Create new holding
+        # Create new holding (normalize so alternate codes map to one symbol)
         new_holding = pd.DataFrame({
-            "Symbol": [symbol.upper()],
+            "Symbol": [normalize_symbol(symbol)],
             "Quantity": [quantity],
             "Purchase_Price": [purchase_price],
             "Purchase_Date": [purchase_date],
@@ -166,8 +166,8 @@ def remove_holding(symbol: str, username: str = None) -> bool:
         # Load current portfolio
         portfolio_df = load_portfolio_data(username)
         
-        # Remove holding
-        portfolio_df = portfolio_df[portfolio_df["Symbol"] != symbol.upper()].reset_index(drop=True)
+        # Remove holding (normalize so it matches the stored canonical symbol)
+        portfolio_df = portfolio_df[portfolio_df["Symbol"] != normalize_symbol(symbol)].reset_index(drop=True)
         
         # Save updated portfolio
         return save_portfolio_data(portfolio_df, username)
@@ -235,8 +235,8 @@ def import_portfolio_from_csv(csv_data: pd.DataFrame) -> bool:
             csv_data["Currency"] = "USD"
             st.warning("Currency column not found in CSV. Defaulting to USD for all entries.")
         
-        # Clean and validate data
-        csv_data["Symbol"] = csv_data["Symbol"].str.upper()
+        # Clean and validate data (normalize alternate codes to one symbol)
+        csv_data["Symbol"] = csv_data["Symbol"].apply(normalize_symbol)
         csv_data["Purchase_Date"] = pd.to_datetime(csv_data["Purchase_Date"]).dt.date
         
         # Load current portfolio

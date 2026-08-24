@@ -26,6 +26,17 @@ def get_gemini_api_key() -> Optional[str]:
     return os.environ.get("GEMINI_API_KEY")
 
 
+def get_finnhub_api_key() -> Optional[str]:
+    """Get Finnhub API key from environment (used as a price-data fallback)."""
+    return os.getenv("FINN_API_KEY")
+
+
+def is_finnhub_configured() -> bool:
+    """Check if Finnhub API key is properly configured."""
+    key = get_finnhub_api_key()
+    return bool(key and key != "your_finnhub_api_key_here")
+
+
 def is_serp_api_configured() -> bool:
     """Check if SERP API key is properly configured."""
     key = get_serp_api_key()
@@ -91,6 +102,47 @@ SENTIMENT_ENABLED = SENTIMENT_AVAILABLE and is_serp_api_configured()
 
 # Portfolio DataFrame column schema
 PORTFOLIO_COLUMNS = ["Symbol", "Quantity", "Purchase_Price", "Purchase_Date", "Currency"]
+
+# =============================================================================
+# TICKER NORMALIZATION
+# =============================================================================
+# Different sources (and users) refer to the same company with different codes.
+# This map resolves common company names, misspellings, renamed tickers, and
+# alternate listings to ONE canonical Yahoo Finance symbol. Where a company has
+# a US-listed ADR we prefer it, because that symbol works on BOTH Yahoo and the
+# Finnhub fallback (Finnhub's free tier only covers US-listed symbols).
+#
+# Keys are compared after upper-casing and stripping whitespace. Extend freely.
+TICKER_ALIASES = {
+    # Renamed / rebranded
+    "FB": "META",
+    "GOOGLE": "GOOGL",
+    # Company name / misspelling -> US-listed ADR (works on Yahoo AND Finnhub)
+    "TSMC": "TSM",          # Taiwan Semiconductor (NYSE ADR)
+    "NOKIA": "NOK",         # Nokia (NYSE ADR)
+    "ALIBABA": "BABA",      # Alibaba (NYSE ADR)
+    "ASML.AS": "ASML",      # Prefer the NASDAQ listing over Amsterdam
+    # Share-class format: Yahoo uses '-', people often type '.'
+    "BRK.B": "BRK-B",
+    "BRK.A": "BRK-A",
+    # SK Hynix: SKHY is a valid US-listed (USD) symbol on both Yahoo and Finnhub,
+    # so keep it as-is and point the company-name variants at it.
+    "SKHYNIX": "SKHY",
+    "SK HYNIX": "SKHY",
+    "SK-HYNIX": "SKHY",
+}
+
+
+def normalize_symbol(symbol: str) -> str:
+    """Resolve a user-entered code to its canonical Yahoo Finance symbol.
+
+    Upper-cases, trims, and applies TICKER_ALIASES. Unknown symbols are returned
+    upper-cased/trimmed unchanged, so this is always safe to call.
+    """
+    if not symbol:
+        return symbol
+    key = str(symbol).strip().upper()
+    return TICKER_ALIASES.get(key, key)
 
 # Supported currencies for the application
 SUPPORTED_CURRENCIES = [

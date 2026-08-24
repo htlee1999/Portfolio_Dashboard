@@ -1,9 +1,50 @@
+import time
+import logging
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-from config import SUPPORTED_CURRENCIES, get_file_timestamp
+from config import (
+    SUPPORTED_CURRENCIES, get_file_timestamp,
+    get_finnhub_api_key, is_finnhub_configured, normalize_symbol,
+)
+
+# Yahoo prints "possibly delisted; no price data found" to its logger whenever a
+# request fails (including when it is just rate-limiting us). Since we fall back
+# to Finnhub in that case, silence this noise so the console stays readable.
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+
+# =============================================================================
+# YAHOO FINANCE CIRCUIT BREAKER
+# =============================================================================
+# When Yahoo starts failing (typically it is rate-limiting our IP), each request
+# blocks for the full network timeout before erroring. Rather than pay that cost
+# on every ticker, the first failure "trips" the breaker: for a cooldown window
+# every call skips Yahoo and goes straight to the Finnhub fallback. After the
+# cooldown the breaker closes and one call probes Yahoo again, so it recovers
+# automatically once the rate-limit lifts.
+
+_YAHOO_COOLDOWN_SECONDS = 300  # Skip Yahoo for 5 minutes after a failure
+_yahoo_down_until = 0.0        # Epoch time until which Yahoo should be skipped
+
+
+def _should_try_yahoo() -> bool:
+    """True unless the breaker is open (Yahoo recently failed)."""
+    return time.time() >= _yahoo_down_until
+
+
+def _trip_yahoo() -> None:
+    """Open the breaker so Yahoo is skipped for the cooldown window."""
+    global _yahoo_down_until
+    _yahoo_down_until = time.time() + _YAHOO_COOLDOWN_SECONDS
+
+
+def _reset_yahoo() -> None:
+    """Close the breaker after a successful Yahoo call."""
+    global _yahoo_down_until
+    _yahoo_down_until = 0.0
 from data_utils import (
     load_portfolio_data, save_portfolio_data, load_settings, save_settings,
     add_holding, remove_holding, clear_all_holdings,
@@ -415,47 +456,167 @@ def handle_change_password_modal() -> bool:
 
 
 
-@st.cache_data
+@st.cache_data(ttl=600)  # Cache for 10 minutes so failures self-heal and prices refresh
 def get_stock_data(symbol: str, period: str = "1y"):
-    """Fetch OHLCV price history and basic info for a ticker."""
+    """Fetch OHLCV price history and basic info for a ticker.
+
+    There is no free historical fallback for this data, so when Yahoo is down
+    (breaker open) we fail fast instead of blocking on the network timeout.
+    """
+    symbol = normalize_symbol(symbol)
+    if not _should_try_yahoo():
+        return None, None
     try:
         ticker = yf.Ticker(symbol)
         data = ticker.history(period=period)
         info = ticker.info
+        _reset_yahoo()
         return data, info
     except Exception as error:
+        _trip_yahoo()
         st.error(f"Error fetching data for {symbol}: {str(error)}")
         return None, None
 
 
-@st.cache_data
-def get_current_price(symbol: str):
-    """Get the latest closing price for the given ticker."""
-    try:
-        ticker = yf.Ticker(symbol)
-        data = ticker.history(period="1d")
-        return data["Close"].iloc[-1] if not data.empty else None
-    except Exception:
+def _to_finnhub_symbol(symbol: str):
+    """Translate a canonical Yahoo symbol to Finnhub's format, or None.
+
+    Finnhub's free tier only serves US-listed symbols, so foreign listings with
+    an exchange suffix (e.g. ``000660.KS``, ``2330.TW``, ``ASML.AS``) have no
+    fallback and return None. Share classes differ by separator: Yahoo uses
+    ``BRK-B`` while Finnhub uses ``BRK.B``.
+    """
+    parts = symbol.rsplit(".", 1)
+    if len(parts) == 2 and parts[1].isalpha():
+        # Exchange-suffixed foreign listing — not available on the free tier.
         return None
+    return symbol.replace("-", ".")
 
 
-def calculate_portfolio_metrics(portfolio_df: pd.DataFrame, base_currency: str = "USD") -> dict:
-    """Compute aggregate portfolio metrics and per-holding breakdown with multi-currency support."""
+def _get_price_finnhub(symbol: str):
+    """Fetch the latest price from Finnhub's real-time quote endpoint.
+
+    Used as a fallback when Yahoo Finance is unavailable or rate-limiting.
+    Returns None if Finnhub is not configured, the symbol has no US listing, or
+    the symbol has no quote.
+    """
+    if not is_finnhub_configured():
+        return None
+    finnhub_symbol = _to_finnhub_symbol(symbol)
+    if finnhub_symbol is None:
+        return None
+    # Retry once to ride out the transient connection timeouts we sometimes see
+    # to finnhub.io from restrictive networks.
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                "https://finnhub.io/api/v1/quote",
+                params={"symbol": finnhub_symbol, "token": get_finnhub_api_key()},
+                timeout=6,
+            )
+            if response.status_code != 200:
+                return None
+            # "c" is the current price; Finnhub returns 0 for unknown symbols.
+            price = response.json().get("c")
+            return float(price) if price else None
+        except Exception:
+            if attempt == 0:
+                continue
+            return None
+
+
+# Successful prices only, cached in-process: symbol -> (price, epoch_seconds).
+# We deliberately do NOT use @st.cache_data here because it would also cache
+# None (a transient network failure), making a ticker show "unpriced" for the
+# full TTL even after connectivity recovers. Caching only successful lookups
+# lets a failed fetch retry on the very next render.
+_PRICE_CACHE_TTL = 600  # 10 minutes
+_price_cache: dict = {}
+
+
+def _fetch_current_price(symbol: str):
+    """Fetch a live price: Finnhub first, then Yahoo. Returns None on failure."""
+    # Primary: Finnhub quote (US-listed symbols).
+    price = _get_price_finnhub(symbol)
+    if price is not None:
+        return price
+
+    # Fallback: Yahoo Finance (needed for foreign listings and if Finnhub fails).
+    if _should_try_yahoo():
+        try:
+            ticker = yf.Ticker(symbol)
+            # Use a short multi-day window so weekends/holidays/pre-market don't
+            # return an empty frame the way a strict period="1d" can.
+            data = ticker.history(period="5d")
+            if not data.empty:
+                _reset_yahoo()
+                return float(data["Close"].iloc[-1])
+            # Empty frame means Yahoo isn't serving data — trip the breaker.
+            _trip_yahoo()
+        except Exception:
+            _trip_yahoo()
+
+    return None
+
+
+def get_current_price(symbol: str):
+    """Get the latest price for a ticker, caching only successful lookups.
+
+    Finnhub is tried first (fast, reliable for US-listed symbols); foreign
+    listings and Finnhub outages fall through to Yahoo (guarded by the circuit
+    breaker). A failed fetch is not cached, so it retries on the next render.
+    """
+    symbol = normalize_symbol(symbol)
+
+    cached = _price_cache.get(symbol)
+    if cached is not None and (time.time() - cached[1]) < _PRICE_CACHE_TTL:
+        return cached[0]
+
+    price = _fetch_current_price(symbol)
+    if price is not None:
+        _price_cache[symbol] = (price, time.time())
+    return price
+
+
+def calculate_portfolio_metrics(portfolio_df: pd.DataFrame, base_currency: str = "USD",
+                                show_progress: bool = False) -> dict:
+    """Compute aggregate portfolio metrics and per-holding breakdown with multi-currency support.
+
+    When ``show_progress`` is True, renders a Streamlit progress bar that updates
+    per holding, so the user can tell fetching is progressing (and see which
+    ticker a slow lookup is stuck on) rather than facing a blank, frozen page.
+    """
     if portfolio_df.empty:
         return {}
 
     total_invested = 0.0
     total_current_value = 0.0
     portfolio_rows = []
+    unpriced_symbols = []
 
-    for _, row in portfolio_df.iterrows():
+    # Optional progress UI — cleared once fetching completes.
+    total_holdings = len(portfolio_df)
+    progress_status = st.empty() if show_progress else None
+    progress_bar = st.progress(0) if show_progress else None
+
+    for position, (_, row) in enumerate(portfolio_df.iterrows()):
         symbol = row["Symbol"]
         quantity = row["Quantity"]
         purchase_price = row["Purchase_Price"]
         currency = row.get("Currency", "USD")  # Default to USD if not specified
 
+        if show_progress:
+            progress_status.text(f"Fetching prices… ({position + 1}/{total_holdings}) {symbol}")
+
         current_price = get_current_price(symbol)
+
+        if show_progress:
+            progress_bar.progress((position + 1) / total_holdings)
+
         if current_price is None:
+            # Record the symbol so the UI can warn rather than silently
+            # dropping it (which would understate the portfolio totals).
+            unpriced_symbols.append(symbol)
             continue
 
         # Calculate values in original currency
@@ -490,8 +651,15 @@ def calculate_portfolio_metrics(portfolio_df: pd.DataFrame, base_currency: str =
         total_invested += invested_value_base
         total_current_value += current_value_base
 
+    # Fetching complete — remove the transient progress UI.
+    if show_progress:
+        progress_status.empty()
+        progress_bar.empty()
+
     if total_invested <= 0:
-        return {}
+        # Surface which symbols could not be priced so the caller can explain
+        # why no metrics are available (e.g. every price source was down).
+        return {"unpriced_symbols": unpriced_symbols} if unpriced_symbols else {}
 
     total_gain_loss = total_current_value - total_invested
     total_gain_loss_pct = (total_gain_loss / total_invested) * 100
@@ -503,17 +671,26 @@ def calculate_portfolio_metrics(portfolio_df: pd.DataFrame, base_currency: str =
         "total_gain_loss_pct": total_gain_loss_pct,
         "base_currency": base_currency,
         "portfolio_data": pd.DataFrame(portfolio_rows),
+        "unpriced_symbols": unpriced_symbols,
     }
 
 
-@st.cache_data
+@st.cache_data(ttl=600)  # Cache for 10 minutes so failures self-heal and prices refresh
 def get_benchmark_data(symbol: str = "^GSPC", period: str = "1y"):
-    """Get benchmark historical data (default S&P 500)."""
+    """Get benchmark historical data (default S&P 500).
+
+    Fails fast when the Yahoo circuit breaker is open; there is no free
+    historical fallback for benchmark data.
+    """
+    if not _should_try_yahoo():
+        return None
     try:
         ticker = yf.Ticker(symbol)
         data = ticker.history(period=period)
+        _reset_yahoo()
         return data
     except Exception:
+        _trip_yahoo()
         return None
 
 
