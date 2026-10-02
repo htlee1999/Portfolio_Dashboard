@@ -24,6 +24,7 @@ import {
 } from "recharts";
 
 import { shortDate } from "@/lib/format";
+import { useMediaQuery } from "@/lib/media";
 import { cn } from "../ui/cn";
 
 /** Categorical slots, assigned in fixed order. Never cycled past 8. */
@@ -220,8 +221,10 @@ export function SignedBars({
   ariaLabel: string;
   name: string;
 }) {
+  // On phones, many category labels collide side by side; slant them instead.
+  const slant = useMediaQuery("(max-width: 639px)") && !dateAxis && data.length > 6;
   return (
-    <figure aria-label={ariaLabel} style={{ height }}>
+    <figure aria-label={ariaLabel} style={{ height: slant ? height + 16 : height }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 6, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
           <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
@@ -233,6 +236,9 @@ export function SignedBars({
             minTickGap={dateAxis ? 42 : 4}
             interval={dateAxis ? "preserveStartEnd" : 0}
             tickFormatter={dateAxis ? (d) => shortDate(d) : undefined}
+            angle={slant ? -50 : 0}
+            textAnchor={slant ? "end" : "middle"}
+            height={slant ? 46 : 30}
           />
           <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={(v) => format(Number(v), "")} />
           <ReferenceLine y={0} stroke="var(--chart-axis)" strokeOpacity={0.6} />

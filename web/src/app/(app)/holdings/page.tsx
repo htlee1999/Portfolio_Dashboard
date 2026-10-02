@@ -122,7 +122,37 @@ export default function HoldingsPage() {
           </div>
 
           <Card padded={false} className="overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Phones: one stacked row per lot instead of a six-column table. */}
+            <ul className="tabular sm:hidden">
+              <AnimatePresence initial={false}>
+                {holdings.map((h) => (
+                  <motion.li
+                    key={`${h.index}-${h.Symbol}-${h.Purchase_Date}`}
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, x: -24 }}
+                    transition={spring.smooth}
+                    className="flex items-center gap-3 border-t-[0.5px] border-separator py-2 pr-2 pl-5 first:border-t-0"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-body font-semibold">{h.Symbol}</div>
+                      <div className="truncate text-footnote text-label-2">{shortDate(h.Purchase_Date, true)}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-callout">
+                        {number(h.Quantity, h.Quantity % 1 ? 2 : 0)} × {money(h.Purchase_Price, h.Currency)}
+                      </div>
+                      <div className="text-footnote text-label-2">{money(h.Quantity * h.Purchase_Price, h.Currency)}</div>
+                    </div>
+                    <IconButton label={`Delete ${h.Symbol} lot from ${h.Purchase_Date}`} className="!text-label-2 hover:!text-negative hover:bg-negative-fill" onClick={() => remove(h)}>
+                      <Trash2 className="size-[18px]" />
+                    </IconButton>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </ul>
+            <div className="hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[600px] text-callout">
                 <thead>
                   <tr className="text-left text-caption text-label-2 [&>th]:px-3 [&>th]:pt-4 [&>th]:pb-2 [&>th]:font-medium [&>th:first-child]:pl-6">

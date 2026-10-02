@@ -17,7 +17,8 @@ export function Card({
   return (
     <div
       className={cn(
-        "squircle rounded-[20px] bg-elevated shadow-[var(--shadow-card)]",
+        // min-w-0: a card in a grid or flex row shrinks to its track instead of growing to fit wide content.
+        "squircle min-w-0 rounded-[20px] bg-elevated shadow-[var(--shadow-card)]",
         padded && "p-5 sm:p-6",
         className,
       )}

@@ -174,55 +174,81 @@ function MiniStat({ label, value, detail }: { label: string; value: string; deta
 
 function PositionsTable({ positions, base }: { positions: ReturnType<typeof toPositions>; base: string }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-callout">
-        <thead>
-          <tr className="text-left text-caption text-label-2 [&>th]:px-3 [&>th]:pb-2 [&>th]:font-medium [&>th:first-child]:pl-5 sm:[&>th:first-child]:pl-6 [&>th:last-child]:pr-5 sm:[&>th:last-child]:pr-6">
-            <th>Symbol</th>
-            <th className="text-right">Shares</th>
-            <th className="text-right">Price</th>
-            <th className="text-right">Value ({base})</th>
-            <th className="text-right">Gain ({base})</th>
-            <th className="text-right">Return</th>
-            <th className="w-36">Weight</th>
-          </tr>
-        </thead>
-        <tbody className="tabular">
-          {positions.map((p) => (
-            <tr key={p.symbol} className="border-t-[0.5px] border-separator transition-colors hover:bg-fill-2 [&>td]:px-3 [&>td]:py-3 [&>td:first-child]:pl-5 sm:[&>td:first-child]:pl-6 [&>td:last-child]:pr-5 sm:[&>td:last-child]:pr-6">
-              <td>
-                <Link href={`/technical?symbol=${p.symbol}`} className="font-semibold hover:text-tint">
+    <>
+      {/* Phones: one stacked row per position instead of a seven-column table. */}
+      <ul className="tabular sm:hidden">
+        {positions.map((p) => (
+          <li key={p.symbol} className="border-t-[0.5px] border-separator">
+            <Link href={`/technical?symbol=${p.symbol}`} className="flex items-center gap-3 px-5 py-3 active:bg-fill-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-body font-semibold">
                   {p.symbol}
-                </Link>
-                {p.lots > 1 && <span className="ml-1.5 text-caption text-label-2">{p.lots} lots</span>}
-              </td>
-              <td className="text-right">{number(p.quantity, p.quantity % 1 ? 2 : 0)}</td>
-              <td className="text-right">{money(p.price, p.currency)}</td>
-              <td className="text-right font-medium">{money(p.valueBase, base)}</td>
-              <td className="text-right">
-                <Delta value={p.gainBase}>{money(p.gainBase, base, { sign: true })}</Delta>
-              </td>
-              <td className="text-right">
-                <Delta value={p.gainPct}>{pct(p.gainPct, 1)}</Delta>
-              </td>
-              <td>
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-fill-2">
-                    <motion.div
-                      className="h-full rounded-full bg-[var(--series-1)]"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${p.weight}%` }}
-                      transition={spring.smooth}
-                    />
-                  </div>
-                  <span className="w-11 text-right text-caption text-label-2">{number(p.weight, 1)}%</span>
+                  {p.lots > 1 && <span className="ml-1.5 text-caption font-normal text-label-2">{p.lots} lots</span>}
                 </div>
-              </td>
+                <div className="truncate text-footnote text-label-2">
+                  {number(p.quantity, p.quantity % 1 ? 2 : 0)} × {money(p.price, p.currency)}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-body font-medium">{money(p.valueBase, base)}</div>
+                <Delta value={p.gainPct} className="text-footnote">
+                  {money(p.gainBase, base, { sign: true })} ({pct(p.gainPct, 1)})
+                </Delta>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[640px] text-callout">
+          <thead>
+            <tr className="text-left text-caption text-label-2 [&>th]:px-3 [&>th]:pb-2 [&>th]:font-medium [&>th:first-child]:pl-5 sm:[&>th:first-child]:pl-6 [&>th:last-child]:pr-5 sm:[&>th:last-child]:pr-6">
+              <th>Symbol</th>
+              <th className="text-right">Shares</th>
+              <th className="text-right">Price</th>
+              <th className="text-right">Value ({base})</th>
+              <th className="text-right">Gain ({base})</th>
+              <th className="text-right">Return</th>
+              <th className="w-36">Weight</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="tabular">
+            {positions.map((p) => (
+              <tr key={p.symbol} className="border-t-[0.5px] border-separator transition-colors hover:bg-fill-2 [&>td]:px-3 [&>td]:py-3 [&>td:first-child]:pl-5 sm:[&>td:first-child]:pl-6 [&>td:last-child]:pr-5 sm:[&>td:last-child]:pr-6">
+                <td>
+                  <Link href={`/technical?symbol=${p.symbol}`} className="font-semibold hover:text-tint">
+                    {p.symbol}
+                  </Link>
+                  {p.lots > 1 && <span className="ml-1.5 text-caption text-label-2">{p.lots} lots</span>}
+                </td>
+                <td className="text-right">{number(p.quantity, p.quantity % 1 ? 2 : 0)}</td>
+                <td className="text-right">{money(p.price, p.currency)}</td>
+                <td className="text-right font-medium">{money(p.valueBase, base)}</td>
+                <td className="text-right">
+                  <Delta value={p.gainBase}>{money(p.gainBase, base, { sign: true })}</Delta>
+                </td>
+                <td className="text-right">
+                  <Delta value={p.gainPct}>{pct(p.gainPct, 1)}</Delta>
+                </td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-fill-2">
+                      <motion.div
+                        className="h-full rounded-full bg-[var(--series-1)]"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${p.weight}%` }}
+                        transition={spring.smooth}
+                      />
+                    </div>
+                    <span className="w-11 text-right text-caption text-label-2">{number(p.weight, 1)}%</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
