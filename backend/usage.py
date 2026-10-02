@@ -5,8 +5,12 @@ from datetime import datetime, timedelta
 
 from .storage import data_path, load_json, save_json
 
-# USD per 1K tokens. Update when pricing changes.
-PRICING = {"gemini-2.5-flash": {"input": 0.000075, "output": 0.0003}}
+# USD per 1K tokens on the paid tier (thinking tokens count as output). Update when pricing changes.
+# https://ai.google.dev/gemini-api/docs/pricing (checked Oct 2026)
+PRICING = {
+    "gemini-3.5-flash-lite": {"input": 0.0003, "output": 0.0025},
+    "gemini-2.5-flash": {"input": 0.0003, "output": 0.0025},
+}
 # Requests per minute / hour, and tokens per day. Adjust to your Gemini plan.
 RATE_LIMITS = {"minute": 15, "hour": 900, "day_tokens": 1_000_000}
 

@@ -12,7 +12,10 @@ from config import GEMINI_AVAILABLE, get_gemini_api_key, is_gemini_api_configure
 from . import fundamentals, market, predictive, sentiment, technical, usage
 from .storage import append_history, load_holdings
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.5-flash-lite"
+# Gemini 3 models think before answering; "minimal" is this model's default. "low" leaves room
+# to weigh conflicting signals without much extra cost (thinking tokens bill as output).
+THINKING_LEVEL = "low"
 
 
 def _portfolio_position(username: str, symbol: str) -> dict | None:
@@ -124,6 +127,24 @@ def _fundamental_scores(fund: dict) -> dict[str, float | None]:
     }
 
 
+def _forecast_score(pred: dict | None) -> float | None:
+    """Above 50 only when a model beat the no-change forecast out of sample and expects a
+    rise; scaled by tomorrow's expected move relative to its typical daily move. A model
+    without demonstrated skill scores a neutral 50, whatever it predicts."""
+    if not pred or not pred["best"] or pred["best"]["verdict"] != "skill":
+        return None
+    sigma = pred["range"]["sigma_pct"] / 100
+    return _clamp(50 + pred["best"]["next_return"] / sigma * 50) if sigma else None
+
+
+def _sentiment_score(sent: dict | None) -> float | None:
+    """News tone mapped to 0-100, but only when its 95% interval excludes zero; a tone that
+    can't be told apart from neutral scores 50."""
+    if not sent or sent["overall"] not in ("Positive", "Negative"):
+        return None
+    return _clamp(50 + sent["index"] * 50)
+
+
 def _scores(tech: dict, fund: dict, pred: dict | None, sent: dict | None) -> list[dict]:
     """0-100 scores for the radar chart. 50 means neutral / unknown."""
     f = _fundamental_scores(fund)
@@ -135,9 +156,8 @@ def _scores(tech: dict, fund: dict, pred: dict | None, sent: dict | None) -> lis
         "Balance sheet": f["Balance sheet"],
         "Quality": f["Quality"],
         "Earnings": f["Earnings"],
-        "Sentiment": _clamp((sent["avg_vader"] + 1) * 50) if sent and sent["total"] else None,
-        "Model accuracy": _clamp(pred["directional_accuracy"] * 100)
-        if pred and pred.get("directional_accuracy") is not None else None,
+        "Sentiment": _sentiment_score(sent),
+        "Forecast": _forecast_score(pred),
     }
     return [{"axis": axis, "score": 50 if score is None else score} for axis, score in raw.items()]
 
@@ -150,8 +170,8 @@ def build_context(username: str, symbol: str, period: str, include_sentiment: bo
     with ThreadPoolExecutor(max_workers=4) as pool:
         tech_f = pool.submit(technical.analyze, symbol, period, 14, 12, 26, 20, 2.0)
         fund_f = pool.submit(fundamentals.analyze, symbol)
-        pred_f = pool.submit(predictive.quick, symbol, period)
-        sent_f = pool.submit(sentiment.analyze, symbol, 15, "both") if sentiment_on else None
+        pred_f = pool.submit(predictive.quick, symbol)
+        sent_f = pool.submit(sentiment.analyze, symbol, 7, "both") if sentiment_on else None
         tech, fund, pred = tech_f.result(), fund_f.result(), pred_f.result()
         sent, sent_error = None, None
         if sent_f:
@@ -169,8 +189,9 @@ def build_context(username: str, symbol: str, period: str, include_sentiment: bo
         sent_light = {k: v for k, v in sent.items() if k != "articles"}
         sent_light["headlines"] = [
             {"title": a["title"], "source": a["source"], "date": a["date"], "sentiment": a["sentiment"], "link": a["link"]}
-            for a in sent["articles"][:6]
-        ]
+            # The strongest-toned headlines say most about what's driving the tone
+            for a in sorted((a for a in sent["articles"] if a["status"] == "scored"), key=lambda a: -abs(a["score"]))
+        ][:6]
     fund_light = {k: v for k, v in fund.items() if k != "statements"}
 
     return {
@@ -196,11 +217,12 @@ class ReasoningStep(BaseModel):
 
 
 class Assessment(BaseModel):
-    steps: list[ReasoningStep] = Field(description="Step-by-step reasoning: technical, fundamental, sentiment, predictive, position, synthesis")
+    steps: list[ReasoningStep] = Field(description="Step-by-step reasoning, one step per section given in the prompt "
+                                       "(technical, fundamental, then forecast, sentiment and position if present), then a synthesis")
     recommendation: Literal["BUY", "HOLD", "SELL"]
     confidence: int = Field(ge=1, le=10)
     time_horizon: Literal["Short-term", "Medium-term", "Long-term"]
-    price_target: float | None = Field(description="12-month price target in the stock's currency, or null")
+    price_target: float | None = Field(description="12-month price target in the currency the price is quoted in, or null")
     strengths: list[str]
     risks: list[str]
     position_advice: str = Field(description="Whether to add to, reduce, or hold the current position, and why")
@@ -274,6 +296,7 @@ def _prompt(ctx: dict) -> str:
     lines = [
         f"You are a professional equity analyst. Assess {ctx['symbol']} ({f['profile']['name']}, "
         f"{f['profile'].get('sector') or 'sector n/a'}) and give a BUY, HOLD or SELL recommendation.",
+        f"Data as of {ctx['generated_at'][:10]}. Prices are in {f['profile'].get('currency') or 'the trading currency'}.",
         "",
         "TECHNICAL",
         f"- Price {_fmt(t['quote']['price'])} ({_fmt(t['quote']['change_pct'], '+.2f', '%')} on the day)",
@@ -281,7 +304,8 @@ def _prompt(ctx: dict) -> str:
         f"signal on their own, and RSI can stay above 70 through strong uptrends)",
         f"- MACD {sig['macd']['state']} (MACD {_fmt(sig['macd']['macd'], '.3f')} vs signal {_fmt(sig['macd']['signal'], '.3f')})",
         f"- Bollinger %B {_fmt(sig['bollinger']['percent_b'])} ({sig['bollinger']['state']} bands)",
-        f"- Price {'above' if sig['trend']['sma50']['price_above'] else 'below'} 50-day SMA ({_fmt(sig['trend']['sma50']['value'])}); OBV {sig['obv']['state']}",
+        (f"- Price {'above' if sig['trend']['sma50']['price_above'] else 'below'} 50-day SMA ({_fmt(sig['trend']['sma50']['value'])}); "
+         if sig["trend"]["sma50"]["value"] is not None else "- 50-day SMA n/a; ") + f"OBV {sig['obv']['state']}",
         f"- 200-day SMA {_fmt(sig['trend']['sma200']['value'])}"
         + ("" if sig["trend"]["sma200"]["value"] is None else f" (price {'above' if sig['trend']['sma200']['price_above'] else 'below'}; "
            f"50-day {'above' if sig['trend']['golden_cross'] else 'below'} 200-day)"),
@@ -305,22 +329,44 @@ def _prompt(ctx: dict) -> str:
     ]
     p = ctx.get("predictive")
     if p:
-        lines += ["", "MACHINE LEARNING (Random Forest, next-session close)",
-                  f"- Forecast {_fmt(p['next_close'])} vs last close {_fmt(p['last_close'])}",
-                  f"- Backtest RMSE {_fmt(p['rmse'], '.3f')}, directional accuracy {_fmt((p['directional_accuracy'] or 0) * 100, '.1f', '%')}",
-                  f"- Top features: {', '.join(x['feature'] for x in p['top_features'][:3])}"]
+        lines += ["", f"FORECAST MODELS (next-session return, walk-forward test on the last {p['test_days']} days of 2 years)"]
+        for m in p["models"]:
+            ci = m["direction_ci"]
+            lines.append(f"- {m['name']}: skill vs no-change forecast {_fmt(_pct(m['skill']), '+.2f', '%')} "
+                         f"(Diebold-Mariano p {_fmt(m['dm_p'], '.2f')}) -> {m['verdict']}; direction right "
+                         f"{_fmt(_pct(m['directional_accuracy']), '.0f', '%')}"
+                         + (f" (95% CI {ci[0] * 100:.0f}-{ci[1] * 100:.0f}%)" if ci else "")
+                         + f"; predicts {_fmt(m['next_return'] * 100, '+.2f', '%')} next session")
+        lines.append(f"- Up days in the test window: {p['up_share'] * 100:.0f}% (an always-up guess scores this on direction)")
+        if not p["any_skill"]:
+            lines.append("- No model beat the no-change forecast with significance: treat the model forecasts as no signal.")
+        r = p["range"]
+        lines.append(f"- GARCH(1,1) next-session range: 80% {_fmt(r['next']['80']['low'])}-{_fmt(r['next']['80']['high'])}, "
+                     f"95% {_fmt(r['next']['95']['low'])}-{_fmt(r['next']['95']['high'])} (last close {_fmt(p['last_close'])}); "
+                     f"daily volatility {r['sigma_pct']:.2f}% vs long-run {_fmt(r['long_run_sigma_pct'], '.2f', '%')}; "
+                     f"past 80% ranges held {_fmt(_pct(r['coverage']['80']['hit_rate']), '.0f', '%')} of closes")
     s = ctx.get("sentiment")
-    if s and s["total"]:
-        lines += ["", "NEWS SENTIMENT",
-                  f"- {s['overall']} overall; VADER {s['avg_vader']:+.3f} across {s['total']} articles "
-                  f"({s['pct']['Positive']:.0f}% positive / {s['pct']['Negative']:.0f}% negative)",
-                  *[f"- \"{h['title']}\" ({h['source']})" for h in s.get("headlines", [])[:5]]]
+    if s and s["n"]:
+        ci = s["ci"]
+        tilt = {"Positive": "positive (95% CI excludes zero)", "Negative": "negative (95% CI excludes zero)",
+                "Neutral": "no clear tilt (95% CI includes zero)", None: f"too few articles to judge (under {s['min_articles']})"}
+        lines += ["", f"NEWS SENTIMENT (last {s['days']} days, firm-specific headlines scored by {s['scorer']['name']})",
+                  f"- Net tone {s['index']:+.2f} on a -1 to +1 scale"
+                  + (f" (95% CI {ci[0]:+.2f} to {ci[1]:+.2f})" if ci else "")
+                  + f" across {s['n']} headlines: {tilt[s['overall']]}; "
+                  f"{s['pct']['Positive']:.0f}% positive / {s['pct']['Negative']:.0f}% negative",
+                  *([f"- Price moved {s['price']['change_pct']:+.1f}% over the same window; "
+                     f"{s['price_move_share'] * 100:.0f}% of headlines report a price move, so tone partly reflects moves already made"]
+                    if s.get("price") and s.get("price_move_share") is not None else []),
+                  "- Research finds news tone predicts returns only weakly and for a day or two; treat it as context, not a forecast.",
+                  *[f"- \"{h['title']}\" ({h['source']}, {h['sentiment'].lower()})" for h in s.get("headlines", [])[:5]]]
     pos = ctx.get("position")
     if pos:
         lines += ["", "CURRENT POSITION",
                   f"- {pos['quantity']:.2f} shares at average cost {_fmt(pos['avg_cost'])} {pos['currency']}",
                   f"- Unrealized {_fmt(pos['unrealized_pct'], '+.2f', '%')}"]
-    lines += ["", "Weigh where the signals agree or diverge. Be specific and concise; do not invent data that is not given."]
+    lines += ["", "Weigh where the signals agree or diverge. Be specific and concise; do not invent data that is not given, "
+              "and skip any section above that is missing rather than guessing at it."]
     return "\n".join(lines)
 
 
@@ -338,8 +384,16 @@ def generate(username: str, ctx: dict) -> dict:
         response = client.models.generate_content(
             model=MODEL,
             contents=prompt,
-            config={"response_mime_type": "application/json", "response_schema": Assessment},
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": Assessment,
+                "thinking_config": {"thinking_level": THINKING_LEVEL},
+                "automatic_function_calling": {"disable": True},  # no tools here
+            },
         )
+        if response.parsed is None and not response.text:
+            reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
+            raise RuntimeError(f"empty response ({reason})")
         result: Assessment = response.parsed or Assessment.model_validate_json(response.text)
     except Exception as e:
         usage.log_call(MODEL, prompt, "", "investment_assessment", ctx["symbol"], success=False, error_message=str(e))
@@ -349,7 +403,9 @@ def generate(username: str, ctx: dict) -> dict:
     usage.log_call(
         MODEL, prompt, response.text or "", "investment_assessment", ctx["symbol"],
         input_tokens=getattr(meta, "prompt_token_count", None),
-        output_tokens=getattr(meta, "candidates_token_count", None),
+        # Thinking tokens are billed as output but reported separately.
+        output_tokens=None if meta is None or meta.candidates_token_count is None
+        else meta.candidates_token_count + (meta.thoughts_token_count or 0),
     )
 
     out = result.model_dump()

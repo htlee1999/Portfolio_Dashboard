@@ -5,7 +5,7 @@ Sentiment Analysis Setup Script
 This script helps you set up and test the Sentiment Analysis feature for the Portfolio Dashboard.
 It will:
 1. Check for required packages
-2. Download necessary NLTK data
+2. Download necessary NLTK data (VADER, the fallback scorer)
 3. Test your SERPapi connection
 4. Verify the .env configuration
 
@@ -77,8 +77,6 @@ def main():
     packages = {
         "google-search-results": "serpapi",
         "nltk": "nltk",
-        "textblob": "textblob",
-        "vaderSentiment": "vaderSentiment",
         "python-dotenv": "dotenv"
     }
     
@@ -137,33 +135,25 @@ def main():
     
     print_success("NLTK data downloaded and verified!")
     
-    # Step 4: Test TextBlob
-    print_header("Testing TextBlob")
-    
-    try:
-        from textblob import TextBlob
-        
-        # Download TextBlob corpora if needed
-        print("Downloading TextBlob data (this may take a moment)...", end=" ")
+    # Step 4: Financial-news model (optional; VADER is used without it)
+    print_header("Checking the Financial-News Model")
+
+    if check_package("torch") and check_package("transformers"):
         try:
-            import textblob
-            textblob.download_corpora()
-        except:
-            pass  # May already be downloaded
-        
-        # Test TextBlob
-        print("Testing TextBlob...", end=" ")
-        blob = TextBlob("This is a great stock!")
-        sentiment = blob.sentiment
-        print_success("Working correctly")
-        print_info(f"Test sentiment - Polarity: {sentiment.polarity}, Subjectivity: {sentiment.subjectivity}")
-        
-    except Exception as e:
-        print_error(f"TextBlob test failed: {str(e)}")
-        return False
-    
-    print_success("TextBlob is working correctly!")
-    
+            os.environ.setdefault("USE_TF", "0")
+            os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+            sys.path.insert(0, str(Path(__file__).parent))
+            from backend.sentiment import FINANCE_MODEL, _score_finance
+            print(f"Loading {FINANCE_MODEL} (about 330 MB on first use)...", end=" ")
+            result = _score_finance(["Company raises full-year guidance after record quarter"])[0]
+            print_success("Working correctly")
+            print_info(f"Test headline scored {result['sentiment']} ({result['score']:+.2f})")
+        except Exception as e:
+            print_warning(f"Model could not load ({e}); headlines will be scored with VADER")
+    else:
+        print_warning("torch and transformers aren't installed; headlines will be scored with VADER")
+        print_info("For the financial-news model: pip install torch transformers")
+
     # Step 5: Check .env file
     print_header("Checking Environment Configuration")
     
@@ -249,7 +239,7 @@ def main():
             if num_articles > 0:
                 first_article = results["news_results"][0]
                 print_info("Sample article:")
-                print(f"   Title: {first_article.get('title', 'N/A')[:60]}...")
+                print(f"   Title: {(first_article.get('title') or first_article.get('snippet') or 'N/A')[:60]}...")
                 print(f"   Source: {first_article.get('source', 'N/A')}")
         else:
             print_warning("No news results found, but API connection is working")
@@ -277,7 +267,7 @@ def main():
     print("  - documentations/FEATURES.md#sentiment")
     print("  - https://serpapi.com/google-finance-api")
     
-    print("\n💡 Tip: Free SERPapi accounts have a limit of 100 searches/month")
+    print("\n💡 Tip: Free SERPapi accounts have a monthly search limit")
     print("   Each sentiment analysis uses 1-2 API calls depending on sources selected")
     
     return True

@@ -35,7 +35,8 @@ def _unavailable(symbol: str):
 
 @router.get("/features")
 def features(user: dict = Depends(current_user)):
-    return {"ml": ML_AVAILABLE, "gemini": is_gemini_api_configured(), "sentiment": sentiment.status()}
+    return {"ml": ML_AVAILABLE, "gemini": is_gemini_api_configured(), "sentiment": sentiment.status(),
+            "chronos": predictive.chronos_status()}
 
 
 def _check_indicator_params(rsi_period: int, macd_fast: int, macd_slow: int, bb_period: int, bb_std: float) -> None:
@@ -86,12 +87,11 @@ def fundamental_analysis(symbol: str, user: dict = Depends(current_user)):
 
 
 class PredictIn(BaseModel):
-    period: str = "1y"
-    rf_estimators: int = Field(100, ge=50, le=200)
-    rf_depth: int = Field(10, ge=3, le=20)
-    svm_c: float = Field(1.0, ge=0.1, le=100)
-    svm_gamma: Literal["scale", "auto", "0.001", "0.01", "0.1", "1.0"] = "scale"
-    test_size: int = Field(20, ge=10, le=40)
+    period: Literal["1y", "2y", "5y"] = "2y"
+    rf_estimators: int = Field(200, ge=50, le=300)
+    rf_depth: int = Field(6, ge=2, le=12)
+    test_size: int = Field(30, ge=20, le=40)
+    use_chronos: bool = False
 
 
 @router.post("/stocks/{symbol}/predict")
@@ -99,10 +99,8 @@ def predict(symbol: str, body: PredictIn, user: dict = Depends(current_user)):
     if not ML_AVAILABLE:
         raise HTTPException(503, "scikit-learn is not installed")
     symbol = _symbol(symbol)
-    gamma = body.svm_gamma if body.svm_gamma in ("scale", "auto") else float(body.svm_gamma)
     try:
-        result = predictive.run(symbol, _period(body.period), body.rf_estimators, body.rf_depth,
-                                body.svm_c, gamma, body.test_size)
+        result = predictive.run(symbol, body.period, body.rf_estimators, body.rf_depth, body.test_size, body.use_chronos)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if result is None:
@@ -111,7 +109,7 @@ def predict(symbol: str, body: PredictIn, user: dict = Depends(current_user)):
 
 
 class SentimentIn(BaseModel):
-    num_articles: int = Field(20, ge=5, le=50)
+    days: Literal[7, 30] = 7
     source: Literal["finance", "news", "both"] = "both"
 
 
@@ -128,7 +126,7 @@ def sentiment_account(user: dict = Depends(current_user)):
 @router.post("/stocks/{symbol}/sentiment")
 def sentiment_analysis(symbol: str, body: SentimentIn, user: dict = Depends(current_user)):
     try:
-        return clean(sentiment.analyze(_symbol(symbol), body.num_articles, body.source))
+        return clean(sentiment.analyze(_symbol(symbol), body.days, body.source))
     except RuntimeError as e:
         raise HTTPException(503, str(e))
 

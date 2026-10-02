@@ -39,8 +39,9 @@ The backend is a Python package run from the repository root as `uvicorn backend
 | `portfolio.py` | Valuation in a base currency, rebased performance series, risk and sector breakdowns |
 | `technical.py` | Indicator series and the current signal state |
 | `fundamentals.py` | Ratio groups, statements, analyst targets |
-| `predictive.py` | Random Forest + Decision Tree ensemble and SVM regression |
-| `sentiment.py` | SERPapi news fetch, VADER and TextBlob scoring |
+| `predictive.py` | Next-session return models (ridge, gradient boosting, random forest, optional Chronos-Bolt), walk-forward tested against a no-change forecast |
+| `volatility.py` | GARCH(1,1) with Student-t errors for the next-session range |
+| `sentiment.py` | SERPapi news fetch, headline filtering (window, duplicates, routine filings, firm-specific), financial-news model scoring with VADER fallback |
 | `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini with a response schema and records the result |
 | `reports.py` | Renders an assessment as a PDF (reportlab) |
 | `track_record.py` | Scores historical recommendations against current prices |

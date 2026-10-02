@@ -165,6 +165,8 @@ function FundamentalsView() {
               </div>
               <Segmented
                 size="sm"
+                equal
+                className="[&>button]:px-4"
                 label="Statement"
                 value={statement}
                 onChange={setStatement}

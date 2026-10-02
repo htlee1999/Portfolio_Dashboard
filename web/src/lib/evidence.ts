@@ -1,5 +1,6 @@
-// Shared shape for the research-evidence notes behind the Technicals and Fundamentals pages.
-// Ratings describe how well peer-reviewed research supports each measure as a return signal.
+// Shared shape for the research-evidence notes behind the Technicals, Fundamentals and Forecast pages.
+// Ratings describe how well peer-reviewed research supports each measure as a return signal;
+// testing methods carry no rating, and their verdict explains why the method is used.
 
 export type Evidence = "strong" | "mixed" | "weak" | "risk";
 
@@ -7,7 +8,7 @@ export type Source = { cite: string; url?: string };
 
 export type EvidenceInfo = {
   name: string;
-  evidence: Evidence;
+  evidence?: Evidence;
   read: string;
   verdict: string;
   learn?: { site: string; url: string };

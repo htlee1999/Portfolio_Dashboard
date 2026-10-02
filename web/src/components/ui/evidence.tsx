@@ -8,6 +8,7 @@ const EVIDENCE_DOT = { strong: "bg-positive", mixed: "bg-warning", weak: "bg-lab
 
 /** A coloured dot for an evidence rating; the label is read by screen readers and shown on hover. */
 export function EvidenceDot({ info, className }: { info: EvidenceInfo; className?: string }) {
+  if (!info.evidence) return null;
   return (
     <span title={`${EVIDENCE_LABEL[info.evidence]}: ${info.verdict}`} className={cn("inline-flex shrink-0", className)}>
       <span aria-hidden className={`size-1.5 rounded-full ${EVIDENCE_DOT[info.evidence]}`} />
@@ -18,6 +19,7 @@ export function EvidenceDot({ info, className }: { info: EvidenceInfo; className
 
 /** A dot with its label, for card footers. */
 export function EvidenceTag({ info, className }: { info: EvidenceInfo; className?: string }) {
+  if (!info.evidence) return null;
   return (
     <div className={cn("flex items-center gap-1.5 text-caption text-label-2", className)} title={info.verdict}>
       <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${EVIDENCE_DOT[info.evidence]}`} />
@@ -69,12 +71,12 @@ export function EvidenceGuide({
               <div key={info.name} className="space-y-2 py-4 first:pt-0">
                 <dt className="flex flex-wrap items-center gap-2">
                   <span className="text-callout font-semibold">{info.name}</span>
-                  <Badge tone={EVIDENCE_TONE[info.evidence]}>{EVIDENCE_LABEL[info.evidence]}</Badge>
+                  {info.evidence && <Badge tone={EVIDENCE_TONE[info.evidence]}>{EVIDENCE_LABEL[info.evidence]}</Badge>}
                 </dt>
                 <dd className="space-y-2 text-callout">
                   <p className="text-label-2">{info.read}</p>
                   <p>
-                    <span className="font-semibold">Evidence: </span>
+                    <span className="font-semibold">{info.evidence ? "Evidence: " : "Why it's used: "}</span>
                     <span className="text-label-2">{info.verdict}</span>
                   </p>
                   <ul className="space-y-1 text-footnote text-label-2">

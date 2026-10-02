@@ -92,7 +92,7 @@ An array with one record per Gemini call:
 ```json
 {
   "timestamp": "2026-10-02T10:15:00",
-  "model": "gemini-2.5-flash",
+  "model": "gemini-3.5-flash-lite",
   "input_tokens": 812,
   "output_tokens": 1450,
   "total_tokens": 2262,

@@ -83,44 +83,58 @@ Each row is one purchase **lot** (symbol, shares, price, date, currency).
 
 ## Forecast
 
-`backend/predictive.py`, `technical_indicators.py → PredictiveAnalysis`
+`backend/predictive.py`, `backend/volatility.py`. Sources for every choice are in the page's **Method & evidence** panel (`web/src/lib/forecast-evidence.ts`).
 
-- **Target:** the next session's close.
-- **Features (20):**
-  - SMA 5/20 and EMA 12/26
-  - Bollinger upper, middle and lower bands and %B
-  - High/low and open/close ratios
-  - RSI, plus MACD with its signal and histogram
-  - 20-day volume average and volume ratio
-  - 1, 5 and 20-day price changes
-  - 20-day volatility
-- **Split:** chronological. The last *test size* % of days (default 20%) is held out, so models are only tested on dates after their training window.
+- **Target:** the next session's **return**, not its price. Prices trend, so models trained on price levels look accurate while mostly echoing today's close, and tree models can't predict outside their training range.
+- **Inputs (13, all scale-free):** 1, 5 and 20-day returns; distance from the 20 and 50-day averages; RSI; MACD histogram ÷ price; Bollinger %B; 20-day volatility and the 5/20-day volatility ratio; the day's high–low range; the overnight gap; and log volume against its 20-day average.
 - **Models:**
-  - **Random Forest:** the average of a Random Forest and a single Decision Tree (same depth).
-  - **SVM:** RBF-kernel support vector regression on standardized features.
-- **Metrics on the test window:**
-  - RMSE and MAE are in price units.
-  - **Directional accuracy** is how often the predicted day-over-day move had the right sign (50% is a coin flip).
-- **Best model** is the one with the lowest RMSE.
-- **Next-session estimate:** each model applied to the most recent day's features.
+  - **Ridge regression:** linear, with shrinkage chosen by cross-validation.
+  - **Gradient boosting:** shallow trees (depth 3), slow learning rate.
+  - **Random forest:** trees and depth set on the page; each leaf holds at least 20 days.
+  - **Chronos-Bolt (optional):** Amazon's pretrained time-series transformer, run zero-shot. Off by default; needs `chronos-forecasting` (see `requirements.txt`). The tiny model (~35 MB) downloads on first use and needs ~750 MB of memory while running.
+- **Testing:** walk-forward. The last *test window* % of days (default 30%) is forecast in monthly blocks, each by a model refitted on everything before it.
+- **Benchmark:** a no-change forecast (return of zero). Every model is scored against it:
+  - **Skill** is the out-of-sample R² of Campbell & Thompson (2008): the share of the no-change forecast's squared error removed.
+  - **p-value** is a one-sided Diebold–Mariano test with the Harvey–Leybourne–Newbold correction. A model is labelled *Beats no change* only below 0.05 ÷ number of models (Bonferroni), and *Worse than no change* when significantly worse.
+  - **Direction right** comes with a Wilson 95% interval, and is shown next to the share of up days, which an always-up guess would score.
+- **Next-session range:** GARCH(1,1) with Student-t errors, fitted by maximum likelihood in `volatility.py` (numpy/scipy only; matches the `arch` package). The backtest fits on data before the test window and checks how often the 80% and 95% ranges held the next close, with a Kupiec coverage test.
 
-**Limitations.** Tree models can't predict outside the price range they were trained on, so after a strong rally or sell-off they lag badly. The page shows a caution banner when any estimate is more than 8% from the last close. A single dominant feature (often SMA 5) means the model is mostly echoing recent price. Treat these as statistical estimates only.
+**What to expect.** On daily data, models rarely beat no change by a significant margin. In testing on AAPL, NVDA, KO, TSM, JPM, D05.SI, SPY and RIVN, none did after the Bonferroni correction, and Chronos-Bolt's point forecasts were worse than no change on every stock checked. The GARCH ranges were well calibrated, with 74–80% of closes inside the 80% range and 93–96% inside the 95% range.
 
 ## Sentiment
 
-`backend/sentiment.py`. Requires `SERP_API_KEY` and the NLTK, TextBlob and SERPapi packages. Run `python3 setup_sentiment.py` to check.
+`backend/sentiment.py`. Requires `SERP_API_KEY` and the SERPapi and NLTK packages. The financial-news model also needs `torch` and `transformers`; without them, headlines are scored with VADER. Run `python3 setup_sentiment.py` to check.
 
-- **Sources:**
-  - Google Finance news for `SYMBOL:EXCHANGE`, with the exchange taken from Yahoo
-  - Google News for "SYMBOL stock"
-  - Or both. Each source costs one SERPapi search.
-- Articles are de-duplicated by title. Each title plus snippet is scored by:
-  - **VADER** compound score from −1 to +1: ≥ 0.05 is positive, ≤ −0.05 negative, otherwise neutral
-  - **TextBlob** polarity (−1 to +1) and subjectivity (0 = factual, 1 = opinion)
-- **Overall** is the label of the *average* VADER compound score. The gauge shows that average on the −1…+1 scale, and the bar shows the positive, neutral and negative split.
-- **Check Quota** calls SERPapi's account endpoint, which uses no searches.
+- **Sources** (each costs one SERPapi search):
+  - **Google Finance** news for `TICKER:EXCHANGE`. Yahoo's exchange codes are mapped to Google's (`NMS → NASDAQ`, `NYQ → NYSE`, `SES → SGX` …); exchanges not on the list skip this source.
+  - **Google News** for "*company name* stock", with the name cleaned of suffixes such as Inc. or Holdings. ETFs search "*TICKER* ETF" and indices their name.
+- **Which headlines count.** Every headline is shown, but only these are scored:
+  - published within the window (7 or 30 days). Google News ranks by relevance and returns stories months old
+  - not a duplicate: a headline sharing 70% or more of its words with one already counted is left out, keeping the newest
+  - not a routine filing: automatically generated fund-holdings posts ("Stock Sold by XYZ Advisors LLC") and pre-planned insider sales (Form 4, 10b5-1)
+  - firm-specific: it names the company, a common alternative name (Google for GOOGL, TSMC for TSM) or the ticker. Funds and indices skip this check.
+- **Scoring.** Each headline is read by `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis` (82M parameters, about 330 MB, downloaded on first use; change with `SENTIMENT_MODEL`). Its score is P(positive) − P(negative), from −1 to +1, and its label is the most likely class. With VADER, the score is the compound score and ±0.05 sets the label.
+- **Net tone** is the mean score of the scored headlines with a 95% t-interval. It is **Positive** or **Negative** only when the interval excludes zero, otherwise **no clear tilt**; under 5 headlines is too few to judge.
+- **Context:** the price change over the same window, and the share of headlines that report a price move ("slides 3%", "is up today"), since those restate moves already made.
+- **Tone by day** charts each day's mean score. **Check Quota** calls SERPapi's account endpoint, which uses no searches.
+- **Method & evidence** cites the research behind each step, as on Technicals, Fundamentals and Forecast.
 
-Automated scoring misses sarcasm and context. Read the articles.
+**Why this model.** Scorers were compared on 2,388 human-labelled financial-news headlines that none of the models were trained on (the Twitter Financial News validation set):
+
+| Scorer | Accuracy | Macro-F1 | Positive read as negative, or vice versa |
+|---|---|---|---|
+| DistilRoBERTa, financial news | 76% | 0.71 | 8% |
+| FinBERT-tone (Huang, Wang & Yang 2023) | 74% | 0.68 | 7% |
+| FinBERT (Araci 2019) | 72% | 0.66 | 11% |
+| Loughran–McDonald word list | 60% | 0.46 | 18% |
+| VADER | 50% | 0.45 | 24% |
+| TextBlob (previously shown) | 49% | 0.38 | 30% |
+
+Calling every headline neutral scores 66% accuracy, because most headlines are. DistilRoBERTa was the most accurate and needs about half FinBERT's compute; it scores 100 headlines in under a second on the CPU.
+
+**What to expect.** News tone describes coverage; research finds it predicts returns only weakly and briefly, so it is context rather than a forecast. In live runs on AAPL, KO and DBS, none showed a clear tilt: the 95% intervals were about ±0.2 wide on 33–57 headlines.
+
+**Known limits.** The model misreads about 1 headline in 4, often valuation language. Name matching can let in related companies that share the name (Coca-Cola HBC, Coca-Cola Europacific) or a headline where the company is the source ("…upgraded by DBS Bank"). Feeds of automated price reports (common for Singapore stocks) push up the share of price-move headlines.
 
 ## AI Assessment
 
@@ -130,8 +144,8 @@ Automated scoring misses sarcasm and context. Read the articles.
 
 - Technical signals, using default periods
 - Fundamentals
-- A Random Forest forecast with default parameters
-- News sentiment (optional, 15 articles per source, 2 searches)
+- The forecast models on 2 years of history, whatever lookback is chosen, so they have enough data
+- News sentiment (optional, last 7 days, both sources, up to 2 searches)
 - Your position in the symbol: total shares, average cost, value and unrealized return across all lots
 
 The **Signal profile** radar turns these into 0–100 scores. A missing input scores a neutral 50, and every score is clamped to 0–100.
@@ -143,18 +157,18 @@ The **Signal profile** radar turns these into 0–100 scores. A missing input sc
 | Profitability | ROE % × 4 |
 | Momentum | 100 − \|RSI − 50\| × 2 (rewards a non-extreme RSI) |
 | Balance sheet | 100 − (Debt/Equity ×) × 40 |
-| Sentiment | (average VADER + 1) × 50 |
-| Model accuracy | directional accuracy × 100 |
+| Sentiment | 50 unless the net tone's 95% interval excludes zero; then 50 + net tone × 50 |
+| Forecast | 50 unless a model significantly beats no change; then 50 + (its predicted return ÷ GARCH daily volatility) × 50 |
 
 These are rough heuristics for visual comparison. Gemini doesn't see them.
 
-**Step 2: Generate Assessment** sends Gemini (`gemini-2.5-flash`) a compact prompt:
+**Step 2: Generate Assessment** sends Gemini (`gemini-3.5-flash-lite`) a compact prompt:
 
 - Technical readings
 - Key ratios, with margins and growth correctly as percentages
 - The analyst consensus and target
-- The ML forecast and its backtest accuracy
-- Sentiment and up to 5 headlines
+- Each forecast model's skill against no change, its significance and direction accuracy, and the GARCH range. When no model beats no change, the prompt says to treat the forecasts as no signal
+- Net tone with its interval and verdict, the price change over the window, the share of headlines reporting price moves, a note that tone is context rather than a forecast, and the 5 strongest-toned headlines
 - Your position
 
 Gemini must return JSON that matches a schema: recommendation (BUY, HOLD or SELL), confidence (1–10), time horizon, price target, step-by-step reasoning, strengths, risks, advice on the position, and a summary. Because the output is structured, nothing is guessed from free text.

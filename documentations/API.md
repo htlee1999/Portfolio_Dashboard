@@ -33,7 +33,7 @@ The FastAPI server listens on port 8000. The web app reaches it through the same
 | GET | `/api/meta` | `{currencies, periods}` |
 | GET | `/api/settings` | `{base_currency, last_updated}`. Shared by all users |
 | PUT | `/api/settings` | `{base_currency}` |
-| GET | `/api/features` | `{ml, gemini, sentiment: {libraries, api_key, enabled}}`: which optional features are available |
+| GET | `/api/features` | `{ml, gemini, sentiment: {libraries, api_key, enabled, scorer: {finance, model, note}}, chronos: {available, model, note}}`: which optional features are available |
 
 ## Holdings
 
@@ -89,22 +89,22 @@ CSV columns: `Symbol, Quantity, Purchase_Price, Purchase_Date[, Currency]`. Curr
 | GET | `/api/stocks/{symbol}/technical` | `period, rsi_period (5–30), macd_fast (5–20), macd_slow (≤50, > fast), bb_period (10–30), bb_std (1–3)` | `{quote, signals, series}`. `series` rows hold `close, volume, rsi, macd, signal, hist, bb_upper/middle/lower, sma20, sma50, ema20, obv, obv_ema` |
 | GET | `/api/stocks/{symbol}/technical.csv` | `period` | OHLCV plus every indicator, as CSV |
 | GET | `/api/stocks/{symbol}/fundamentals` | none | `{profile, headline, ratios: {Valuation, Profitability, Liquidity, Leverage, Growth}, analyst, statements: {income, balance, cashflow}}`. Each ratio has a `unit`: `x` (multiple), `fraction` (0.25 = 25%) or `percent` (150 = 1.5×) |
-| POST | `/api/stocks/{symbol}/predict` | `{period, rf_estimators 50–200, rf_depth 3–20, svm_c 0.1–100, svm_gamma "scale"\|"auto"\|"0.001"…"1.0", test_size 10–40}` | `{last_close, samples, models: [{name, metrics: {rmse, mae, directional_accuracy}, next_close}], best_model, series: [{date, actual, rf, svm}], feature_importance}` |
+| POST | `/api/stocks/{symbol}/predict` | `{period "1y"\|"2y"\|"5y", rf_estimators 50–300, rf_depth 2–12, test_size 20–40, use_chronos}` | `{last_close, last_date, samples, baseline, models: [{name, kind, metrics: {rmse_pct, mae_pct, skill, dm_p, directional_accuracy, direction_ci, verdict}, next_return, next_close}], best_model, any_skill, alpha, range: {sigma_pct, next, coverage, backtest}, series, feature_importance, chronos}` |
 | GET | `/api/sentiment/account` | none | SERPapi quota: `{plan, searches_left, used_this_month, …}` (uses no search) |
-| POST | `/api/stocks/{symbol}/sentiment` | `{num_articles 5–50, source "both"\|"finance"\|"news"}` | `{overall, avg_vader, avg_polarity, counts, pct, total, articles, errors, searches_used}`. **Uses 1–2 SERPapi searches** |
+| POST | `/api/stocks/{symbol}/sentiment` | `{days 7\|30, source "both"\|"finance"\|"news"}` | `{overall, index, ci, n, counts, pct, excluded, scorer, query, price, price_move_share, daily, articles[{title, source, published, status, sentiment, score, confidence, price_move, …}], errors, searches_used}`. `overall` is Positive/Negative only when the 95% CI excludes zero, Neutral otherwise, null under 5 headlines. **Uses 1–2 SERPapi searches** |
 
 ## AI assessment
 
 The assessment runs in two steps, so you can review the inputs before spending a Gemini call.
 
-1. **`POST /api/stocks/{symbol}/assessment`** with `{period, include_sentiment}` gathers technicals, fundamentals, a default Random Forest forecast, optional sentiment (2 SERPapi searches) and your position. It returns the **context**: `{technical, fundamental, predictive, sentiment, sentiment_status, position, scores, ai_available, …}`.
-2. **`POST /api/stocks/{symbol}/assessment/ai`** takes that context object as the body. It calls Gemini (`gemini-2.5-flash`) with a JSON response schema, logs token usage, appends the result to your recommendation history, and returns:
+1. **`POST /api/stocks/{symbol}/assessment`** with `{period, include_sentiment}` gathers technicals, fundamentals, the forecast models' skill summary and GARCH range (always on 2 years), optional sentiment (2 SERPapi searches) and your position. It returns the **context**: `{technical, fundamental, predictive, sentiment, sentiment_status, position, scores, ai_available, …}`.
+2. **`POST /api/stocks/{symbol}/assessment/ai`** takes that context object as the body. It calls Gemini (`gemini-3.5-flash-lite`) with a JSON response schema, logs token usage, appends the result to your recommendation history, and returns:
 
    ```jsonc
    { "recommendation": "BUY" | "HOLD" | "SELL", "confidence": 1-10,
      "time_horizon": "Short-term" | "Medium-term" | "Long-term", "price_target": 650.0 | null,
      "steps": [{ "title": "...", "content": "..." }], "strengths": [...], "risks": [...],
-     "position_advice": "...", "summary": "...", "model": "gemini-2.5-flash", "generated_at": "..." }
+     "position_advice": "...", "summary": "...", "model": "gemini-3.5-flash-lite", "generated_at": "..." }
    ```
 
 **`POST /api/reports/assessment.pdf`** takes `{context, ai}` and returns a PDF download.

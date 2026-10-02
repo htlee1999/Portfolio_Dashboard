@@ -15,6 +15,7 @@ export function Segmented<T extends string>({
   label,
   className,
   size = "md",
+  equal = false,
 }: {
   options: readonly { value: T; label: React.ReactNode }[];
   value: T;
@@ -22,13 +23,15 @@ export function Segmented<T extends string>({
   label: string;
   className?: string;
   size?: "md" | "sm";
+  /** Give every segment the width of the widest, like a native segmented control. */
+  equal?: boolean;
 }) {
   const id = useId();
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("squircle relative inline-flex rounded-[10px] bg-fill p-[2px]", size === "md" ? "h-9" : "h-8", className)}
+      className={cn("squircle relative rounded-[10px]", equal ? "inline-grid auto-cols-fr grid-flow-col" : "inline-flex", "bg-fill p-[2px]", size === "md" ? "h-9" : "h-8", className)}
     >
       {options.map((o) => {
         const active = o.value === value;

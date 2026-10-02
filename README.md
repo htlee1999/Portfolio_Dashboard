@@ -34,7 +34,7 @@ All keys are optional. The core portfolio features work without any of them.
 |---|---|---|
 | `FINN_API_KEY` | Faster, more reliable live quotes for US-listed symbols. Yahoo Finance is used otherwise. | [finnhub.io](https://finnhub.io/) (free) |
 | `GEMINI_API_KEY` | AI Assessment | [aistudio.google.com](https://aistudio.google.com/) (free tier) |
-| `SERP_API_KEY` | Sentiment, and the news input to AI Assessment | [serpapi.com](https://serpapi.com/) (100 free searches/month) |
+| `SERP_API_KEY` | Sentiment, and the news input to AI Assessment | [serpapi.com](https://serpapi.com/) (free monthly searches) |
 | `SMTP_*` | Emailing password-reset links. Without it, links appear in the API terminal | any SMTP provider, such as a Gmail app password |
 
 See [Configuration](documentations/CONFIGURATION.md) for every setting, including session security for deployment.
@@ -48,8 +48,8 @@ See [Configuration](documentations/CONFIGURATION.md) for every setting, includin
 | **Performance** | Your current allocation vs the S&P 500 over 1M–5Y, sector mix and per-holding volatility |
 | **Technicals** | Price with Bollinger Bands or moving averages, RSI, MACD and OBV, with adjustable periods |
 | **Fundamentals** | Company profile, valuation and profitability ratios, analyst targets and 4–5 years of financial statements |
-| **Forecast** | Random Forest and SVM models trained to predict the next close, with a backtest and feature importance |
-| **Sentiment** | News from Google Finance and Google News, scored with VADER and TextBlob |
+| **Forecast** | Ridge, gradient boosting and random forest models (plus optional pretrained Chronos-Bolt) for the next session's return, tested walk-forward against a no-change forecast, and a GARCH range for the next close |
+| **Sentiment** | Recent firm-specific headlines from Google Finance and Google News, scored by a financial-news language model, with a confidence interval on the net tone and research sources |
 | **AI Assessment** | Combines all of the above, plus your position, into a Gemini recommendation with step-by-step reasoning and a PDF report |
 | **Track Record** | Every past AI recommendation scored against today's price, plus a "follow every BUY" simulation |
 | **API Usage** | Gemini calls, tokens, estimated cost and rate-limit headroom |
@@ -71,8 +71,9 @@ backend/                FastAPI server
   portfolio.py          valuation, performance vs benchmark, risk, sectors
   technical.py          indicator series and signals
   fundamentals.py       ratios, statements, analyst view
-  predictive.py         Random Forest / SVM next-close models
-  sentiment.py          SERPapi news + VADER / TextBlob
+  predictive.py         next-session return models, walk-forward tested against no change
+  volatility.py         GARCH(1,1) range for the next close
+  sentiment.py          SERPapi news, filtering, financial-news model scoring
   assessment.py         signal aggregation and Gemini structured assessment
   reports.py            PDF export
   track_record.py       hindsight scoring of past recommendations

@@ -77,7 +77,6 @@ try:
     from serpapi import GoogleSearch
     import nltk
     from nltk.sentiment.vader import SentimentIntensityAnalyzer
-    from textblob import TextBlob
     SENTIMENT_AVAILABLE = True
 
     # Download VADER lexicon if not already present
@@ -86,7 +85,6 @@ try:
     except LookupError:
         try:
             nltk.download('vader_lexicon', quiet=True)
-            nltk.download('punkt', quiet=True)
         except Exception:
             pass
 except ImportError:

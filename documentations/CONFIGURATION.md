@@ -9,6 +9,8 @@ The API reads `.env` from the repository root at startup (`python-dotenv`). Copy
 | `FINN_API_KEY` | none | Finnhub real-time quotes for US-listed symbols. Without it, every quote comes from Yahoo Finance, which rate-limits aggressively |
 | `GEMINI_API_KEY` | none | Enables AI Assessment |
 | `SERP_API_KEY` | none | Enables Sentiment and the news input to AI Assessment |
+| `SENTIMENT_MODEL` | `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis` | Hugging Face model that scores headlines. Any model whose labels are positive, neutral and negative works. Needs `torch` and `transformers` |
+| `CHRONOS_MODEL` | `amazon/chronos-bolt-tiny` | Pretrained forecaster for the optional Chronos-Bolt model on Forecast |
 | `SESSION_SECRET` | auto-generated | Key that signs session cookies, at least 32 characters. If unset, a random key is created in `data/.session_secret` on first run. **Required** on Vercel (or with `REQUIRE_SESSION_SECRET=1`) |
 | `COOKIE_SECURE` | auto | Cookies are `Secure` whenever the request arrived over HTTPS. Set `1` to force on, `0` to force off |
 | `ADMIN_PASSWORD` | generated | Password for the `admin` account created on a fresh install. If unset, a random one is printed to the API console |
@@ -38,14 +40,14 @@ The free tier covers real-time quotes for US-listed symbols. Foreign listings (`
 1. Go to [aistudio.google.com](https://aistudio.google.com/), sign in, and choose **Get API key → Create API key**.
 2. Add `GEMINI_API_KEY=…` to `.env`.
 
-The model is `gemini-2.5-flash` (`backend/assessment.py → MODEL`). Each assessment uses roughly 1,500–4,000 tokens. Free-tier limits and the cost estimates on API Usage are set in `backend/usage.py` (`RATE_LIMITS`, `PRICING`); update them if Google changes its pricing or you're on a paid plan.
+The model is `gemini-3.5-flash-lite` (`backend/assessment.py → MODEL`). Each assessment uses roughly 1,500–4,000 tokens. Free-tier limits and the cost estimates on API Usage are set in `backend/usage.py` (`RATE_LIMITS`, `PRICING`); update them if Google changes its pricing or you're on a paid plan.
 
 **SERPapi**
-1. Sign up at [serpapi.com](https://serpapi.com/). The free plan includes 100 searches per month.
+1. Sign up at [serpapi.com](https://serpapi.com/). The free plan includes a monthly allowance of searches (250 at the time of writing).
 2. Add `SERP_API_KEY=…` to `.env`.
-3. Run `python3 setup_sentiment.py` to install the NLTK data and test the key.
+3. Run `python3 setup_sentiment.py` to install the NLTK data, load the financial-news model and test the key.
 
-A Sentiment run uses 1 search per source (2 with "Both"). An AI Assessment with sentiment on uses 2. Checking your quota uses none.
+A Sentiment run uses 1 search per source (2 with "Both"; Google Finance is skipped, and not charged, for exchanges it doesn't cover). An AI Assessment with sentiment on uses 2. Checking your quota uses none.
 
 ## Accounts
 

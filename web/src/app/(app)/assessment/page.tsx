@@ -202,21 +202,21 @@ function Snapshot({ ctx }: { ctx: AssessmentContext }) {
           ]}
         />
         <SignalCard
-          title="ML forecast"
+          title="Forecast"
           empty={!p ? "Not enough history" : undefined}
           lines={p ? [
-            ["Next close", money(p.next_close, ccy)],
-            ["Direction acc.", p.directional_accuracy != null ? pct(p.directional_accuracy * 100, 0, false) : "—"],
-            ["RMSE", number(p.rmse, 2)],
+            ["Models", p.any_skill ? `${p.best?.name} beats no change` : "No edge over no change"],
+            ["Best skill", p.best?.skill != null ? pct(p.best.skill * 100, 2) : "—"],
+            ["80% range", `${number(p.range.next["80"].low, 2)}–${number(p.range.next["80"].high, 2)}`],
           ] : []}
         />
         <SignalCard
           title="Sentiment"
-          empty={!s ? (ctx.sentiment_status.error ?? (ctx.sentiment_status.requested ? (ctx.sentiment_status.enabled ? "No articles found" : "Not configured") : "Not included")) : undefined}
+          empty={!s ? (ctx.sentiment_status.error ?? (ctx.sentiment_status.requested ? (ctx.sentiment_status.enabled ? "No headlines found" : "Not configured") : "Not included")) : undefined}
           lines={s ? [
-            ["Overall", s.overall ?? "—"],
-            ["VADER", `${s.avg_vader >= 0 ? "+" : ""}${number(s.avg_vader, 3)}`],
-            ["Articles", String(s.total)],
+            ["Tone", s.overall === "Neutral" ? "No clear tilt" : s.overall ?? "Too few articles"],
+            ["Net tone", s.index != null ? `${s.index >= 0 ? "+" : ""}${number(s.index, 2)}` : "—"],
+            ["Headlines", `${s.n} in ${s.days} days`],
           ] : []}
         />
       </motion.div>

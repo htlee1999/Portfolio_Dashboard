@@ -213,49 +213,95 @@ export type Fundamentals = {
   statements: Record<"income" | "balance" | "cashflow", { years: string[]; rows: StatementRow[] }>;
 };
 
-export type ModelResult = { name: string; metrics: { rmse: number; mae: number; directional_accuracy: number | null }; next_close: number };
+export type ModelMetrics = {
+  rmse_pct: number;
+  mae_pct: number;
+  skill: number | null;
+  dm_p: number | null;
+  directional_accuracy: number | null;
+  direction_ci: [number, number] | null;
+  direction_n: number;
+  verdict: "skill" | "no edge" | "worse";
+  band80_hit?: number;
+};
+
+export type ModelResult = { name: string; kind: "trained" | "pretrained"; metrics: ModelMetrics; next_return: number; next_close: number };
+
+export type Band = { low: number; high: number };
+export type Coverage = { target: number; hit_rate: number | null; n: number; p_value: number | null };
+
+export type ForecastRange = {
+  model: string;
+  sigma_pct: number;
+  long_run_sigma_pct: number | null;
+  persistence: number;
+  next: Record<"80" | "95", Band>;
+  coverage: Record<"80" | "95", Coverage>;
+  backtest: { date: string; actual: number; lo80: number; hi80: number; lo95: number; hi95: number }[];
+};
+
+export type ChronosStatus = { available: boolean; model: string; note: string | null };
 
 export type Prediction = {
   symbol: string;
   period: string;
   last_close: number;
-  samples: { train: number; test: number; features: number };
+  last_date: string;
+  samples: { train: number; test: number; features: number; refit_every: number };
+  baseline: { name: string; up_share: number; rmse_pct: number };
   models: ModelResult[];
-  best_model: string;
-  series: { date: string; actual: number; rf: number; svm: number }[];
+  best_model: string | null;
+  any_skill: boolean;
+  alpha: number;
+  range: ForecastRange;
+  series: ({ date: string; actual: number } & Record<string, number | string>)[];
   feature_importance: { feature: string; importance: number }[];
+  chronos: ChronosStatus | null;
 };
+
+export type Tone = "Positive" | "Neutral" | "Negative";
+
+export type ArticleStatus = "scored" | "old" | "undated" | "duplicate" | "routine" | "off_topic";
 
 export type Article = {
   title: string;
-  snippet: string;
   source: string;
   date: string;
+  published: string | null;
   link: string;
   origin: string;
-  vader: number;
-  vader_pos: number;
-  vader_neg: number;
-  vader_neu: number;
-  polarity: number;
-  subjectivity: number;
-  sentiment: "Positive" | "Neutral" | "Negative";
+  status: ArticleStatus;
+  price_move: boolean;
+  sentiment: Tone;
+  score: number;
+  confidence: number | null;
 };
+
+export type SentimentScorer = { name: string; model: string; finance: boolean };
 
 export type Sentiment = {
   symbol: string;
-  overall: "Positive" | "Neutral" | "Negative" | null;
-  avg_vader: number;
-  avg_polarity: number;
-  counts: Record<"Positive" | "Neutral" | "Negative", number>;
-  pct: Record<"Positive" | "Neutral" | "Negative", number>;
-  total: number;
+  days: 7 | 30;
+  query: { name: string; keywords: string[] | null; ticker: string; google_finance: string | null; google_news: string };
+  scorer: SentimentScorer;
+  scorer_note: string | null;
+  overall: Tone | null;
+  index: number | null;
+  ci: [number, number] | null;
+  n: number;
+  min_articles: number;
+  counts: Record<Tone, number>;
+  pct: Record<Tone, number>;
+  excluded: Record<Exclude<ArticleStatus, "scored">, number>;
+  price: { change_pct: number; from: string; to: string } | null;
+  price_move_share: number | null;
+  daily: { date: string; n: number; mean: number }[];
   articles: Article[];
   errors: string[];
   searches_used: number;
 };
 
-export type Features = { ml: boolean; gemini: boolean; sentiment: { libraries: boolean; api_key: boolean; enabled: boolean } };
+export type Features = { ml: boolean; gemini: boolean; sentiment: { libraries: boolean; api_key: boolean; enabled: boolean; scorer: { finance: boolean; model: string; note: string | null } }; chronos: ChronosStatus };
 
 export type AssessmentContext = {
   symbol: string;
@@ -264,12 +310,13 @@ export type AssessmentContext = {
   technical: Omit<Technical, "series">;
   fundamental: Omit<Fundamentals, "statements">;
   predictive: {
-    rmse: number;
-    mae: number;
-    directional_accuracy: number | null;
-    next_close: number;
+    any_skill: boolean;
+    test_days: number;
+    up_share: number;
+    models: { name: string; skill: number | null; dm_p: number | null; verdict: ModelMetrics["verdict"]; directional_accuracy: number | null; direction_ci: [number, number] | null; next_return: number }[];
+    best: { name: string; skill: number | null; verdict: ModelMetrics["verdict"]; next_return: number } | null;
     last_close: number;
-    top_features: { feature: string; importance: number }[];
+    range: Omit<ForecastRange, "backtest">;
   } | null;
   sentiment: (Omit<Sentiment, "articles"> & { headlines: { title: string; source: string; date: string; sentiment: string; link: string }[] }) | null;
   sentiment_status: { requested: boolean; enabled: boolean; error: string | null };
