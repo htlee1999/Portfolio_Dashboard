@@ -1,202 +1,128 @@
-## Portfolio Analysis Dashboard
+# Portfolio Dashboard
 
-Interactive Streamlit app for building a stock portfolio, fetching live market data from Yahoo Finance, and visualizing performance with Plotly.
+A personal portfolio tracker and stock research app. Track holdings across 16 currencies, compare performance against the S&P 500, analyze stocks with technical, fundamental, machine-learning and news-sentiment tools, and get AI-assisted BUY/HOLD/SELL assessments from Google Gemini. A track record scores past AI calls against today's price.
 
-### Features
-- **🔐 User Authentication**: Secure login system with password protection and user management
-- **📈 Portfolio Builder**: Add holdings manually or via CSV upload with multi-currency support
-- **📊 Dashboard Overview**: Key metrics, allocation pie chart, gain/loss bar chart
-- **🔍 Detailed Analysis**: Compare vs S&P 500, risk metrics, sector breakdown
-- **📈 Technical Analysis**: Advanced technical indicators, charting tools, and market analysis
-- **📋 Fundamental Analysis**: Company fundamentals, financial ratios, and valuation metrics
-- **💭 Sentiment Analysis**: Real-time news sentiment analysis using SERPapi, VADER, and TextBlob
-- **🎯 AI Investment Assessment**: AI-powered investment recommendations using Google Gemini with PDF report export
-- **💾 Data Management**: JSON editor, backup/restore, CSV export/import, portfolio statistics
-- **📊 Usage Monitoring**: Track API usage, costs, and system performance
-- **🌍 Multi-Currency Support**: Automatic currency conversion for global portfolios
+The interface follows Apple's Human Interface Guidelines: translucent materials, spring-based motion, SF Pro typography and semantic colors that adapt to light and dark mode.
 
-### Requirements
-- Python 3.9+ (recommended 3.9–3.12)
-- macOS/Linux/Windows supported
-- Internet connection for real-time market data
-- Google Gemini API key (optional, for AI features)
-- SERPapi key (optional, for sentiment analysis)
-- Hugging Face API key (optional, for additional AI features)
+**Stack:** Next.js 16 (App Router, React 19, Tailwind CSS v4, Motion, Recharts) for the web app and FastAPI (Python) for the API. Data is stored as local JSON files, so there is no database to run.
 
-### Fresh Setup 
+## Quick start
+
+You need Python 3.9 or later and Node.js 20.9 or later.
+
 ```bash
-git clone <your-repo-url> portfolio
-cd portfolio
-python3 -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\\Scripts\\activate
-python -m pip install --upgrade pip
+git clone <repo-url> portfolio && cd portfolio
 pip install -r requirements.txt
+cp config.env.example .env      # then add your API keys (see below)
+./dev.sh                        # starts the API on :8000 and the web app on :3000
 ```
 
-If you don't have `requirements.txt` yet, install the core dependencies:
+Open http://localhost:3000. On a fresh install, the API creates an **admin** account and prints its generated password in the terminal (or set `ADMIN_PASSWORD` in `.env` beforehand). Change it in **Settings → Change Password**.
+
+To run the two servers separately:
+
 ```bash
-pip install streamlit yfinance pandas numpy plotly requests cryptography google-genai python-dotenv reportlab
+python3 -m uvicorn backend.main:app --reload --port 8000   # from the repo root
+cd web && npm install && npm run dev                       # http://localhost:3000
 ```
 
-### Configuration
-1. **Copy the environment template**:
-   ```bash
-   cp config.env.example .env
-   ```
+### API keys
 
-2. **Configure API keys** (optional):
-   - Edit `.env` file and add your API keys:
-     ```
-     GEMINI_API_KEY=your_gemini_api_key_here
-     SERP_API_KEY=your_serpapi_key_here
-     HUGGINGFACE_API_KEY=your_huggingface_api_key_here
-     ```
-   - See [Gemini Setup Guide](documentations/GEMINI_SETUP.md) for detailed instructions
-   - See [Sentiment Analysis Setup](documentations/SENTIMENT_ANALYSIS_README.md) for SERPapi configuration
+All keys are optional. The core portfolio features work without any of them.
 
-3. **Start the application**:
-   ```bash
-   streamlit run Portfolio.py
-   ```
+| Variable | Enables | Get one |
+|---|---|---|
+| `FINN_API_KEY` | Faster, more reliable live quotes for US-listed symbols. Yahoo Finance is used otherwise. | [finnhub.io](https://finnhub.io/) (free) |
+| `GEMINI_API_KEY` | AI Assessment | [aistudio.google.com](https://aistudio.google.com/) (free tier) |
+| `SERP_API_KEY` | Sentiment, and the news input to AI Assessment | [serpapi.com](https://serpapi.com/) (100 free searches/month) |
+| `SMTP_*` | Emailing password-reset links. Without it, links appear in the API terminal | any SMTP provider, such as a Gmail app password |
 
-### CSV Template
-The CSV upload expects columns: `Symbol, Quantity, Purchase_Price, Purchase_Date, Currency`.
-You can click "Download CSV Template" in the app, or create one like:
-```csv
-Symbol,Quantity,Purchase_Price,Purchase_Date,Currency
-AAPL,10,150.00,2024-01-01,USD
-GOOGL,5,2500.00,2024-01-15,SGD
-MSFT,15,300.00,2024-02-01,USD
+See [Configuration](documentations/CONFIGURATION.md) for every setting, including session security for deployment.
+
+## Features
+
+| Page | What it does |
+|---|---|
+| **Overview** | Portfolio value, all-time gain, allocation, gain by position and a positions table, all in your base currency |
+| **Holdings** | Add, delete, import and export purchase lots (CSV), and create backups |
+| **Performance** | Your current allocation vs the S&P 500 over 1M–5Y, sector mix and per-holding volatility |
+| **Technicals** | Price with Bollinger Bands or moving averages, RSI, MACD and OBV, with adjustable periods |
+| **Fundamentals** | Company profile, valuation and profitability ratios, analyst targets and 4–5 years of financial statements |
+| **Forecast** | Random Forest and SVM models trained to predict the next close, with a backtest and feature importance |
+| **Sentiment** | News from Google Finance and Google News, scored with VADER and TextBlob |
+| **AI Assessment** | Combines all of the above, plus your position, into a Gemini recommendation with step-by-step reasoning and a PDF report |
+| **Track Record** | Every past AI recommendation scored against today's price, plus a "follow every BUY" simulation |
+| **API Usage** | Gemini calls, tokens, estimated cost and rate-limit headroom |
+| **Settings** | Account, password, appearance, base currency, raw data editor and (for admins) user management |
+
+[Features](documentations/FEATURES.md) explains how each figure is calculated and what its limits are.
+
+## Project structure
+
+```
+backend/                FastAPI server
+  main.py               app entry point (uvicorn backend.main:app)
+  routes/               HTTP endpoints: auth, portfolio, analysis, admin
+  auth.py               users, emails, password reset tokens, signed session cookies
+  mailer.py             password-reset email (SMTP, or console fallback)
+  manage.py             CLI: list users, set email, print a reset link
+  storage.py            JSON persistence in data/
+  market.py             quotes, history, company info, FX (Finnhub + Yahoo with circuit breaker)
+  portfolio.py          valuation, performance vs benchmark, risk, sectors
+  technical.py          indicator series and signals
+  fundamentals.py       ratios, statements, analyst view
+  predictive.py         Random Forest / SVM next-close models
+  sentiment.py          SERPapi news + VADER / TextBlob
+  assessment.py         signal aggregation and Gemini structured assessment
+  reports.py            PDF export
+  track_record.py       hindsight scoring of past recommendations
+  usage.py              Gemini usage log and summaries
+config.py               shared settings: API keys, ticker aliases, currencies, periods
+technical_indicators.py RSI, MACD, Bollinger, moving averages, OBV, ML features
+web/                    Next.js web app
+  src/app/(app)/        signed-in pages
+  src/app/(auth)/       sign in and sign up
+  src/components/       UI primitives, charts and app shell
+  src/lib/              API client, formatting, motion presets, theme, types
+  src/proxy.ts          redirects signed-out visitors to /login
+data/                   your data (git-ignored)
+documentations/         guides
+dev.sh                  starts both servers
+setup_sentiment.py      checks the sentiment dependencies and SERPapi key
 ```
 
-**Supported Currencies**: USD, SGD, EUR, GBP, JPY, CAD, AUD, HKD, CNY, INR, KRW, THB, MYR, IDR, PHP, VND
+## Documentation
 
-### How It Works
-- **🔐 Authentication**: Secure user management with encrypted password storage
-- **📊 Data**: Pulled via `yfinance` (Yahoo Finance). Data may be delayed and is for informational purposes only.
-- **⚡ Caching**: Streamlit `@st.cache_data` is used to avoid redundant API calls.
-- **📈 Visuals**: Built with Plotly (`px` and `graph_objects`) for interactive charts.
-- **🌍 Multi-Currency**: Automatic currency conversion using Yahoo Finance exchange rates.
-- **💾 Data Storage**: Local JSON files in `data/` directory with automatic backups.
-- **🤖 AI Features**: Google Gemini integration for intelligent investment analysis and recommendations.
-- **💭 Sentiment Analysis**: Real-time news extraction via SERPapi with VADER and TextBlob sentiment analysis.
-- **📊 Technical Analysis**: Advanced charting with multiple technical indicators and overlays.
-- **🔍 Fundamental Analysis**: Company financial metrics and valuation analysis.
-- **📱 Navigation**: Clean sidebar with custom title above default Streamlit navigation.
+- [Architecture](documentations/ARCHITECTURE.md): how the pieces fit, request flow, caching and auth
+- [API reference](documentations/API.md): every endpoint
+- [Features](documentations/FEATURES.md): calculations, models and limitations
+- [Design system](documentations/DESIGN_SYSTEM.md): tokens, typography, motion, components and chart rules
+- [Configuration](documentations/CONFIGURATION.md): environment variables, accounts and deployment
+- [Data](documentations/DATA.md): files in `data/` and their formats
 
-### Project Structure (Multipage)
-```
-portfolio/
-  Portfolio.py                 # Home page
-  app_utils.py                 # Shared utilities (data, metrics, styling, currency)
-  auth_utils.py                # Authentication and user management
-  config.py                    # Centralized configuration (API keys, feature flags)
-  data_utils.py                # Data persistence and management functions
-  file_utils.py                # File and JSON operations utilities
-  gemini_monitor.py            # AI usage monitoring and cost tracking
-  page_utils.py                # Page initialization utilities
-  technical_indicators.py      # Technical analysis indicators library
-  config.env.example          # Environment configuration template
-  pages/
-    0_Sign_Up.py              # User registration
-    1_Portfolio_Overview.py     # Combined home page and dashboard overview
-    1_Portfolio_Builder.py     # Portfolio management and stock entry
-    3_Detailed_Analysis.py    # Advanced analytics
-    4_Data_Management.py      # Data tools and JSON editor
-    5_Technical_Analysis.py   # Technical analysis tools
-    6_Fundamental_Analysis.py # Fundamental analysis
-    7_Investment_Assessment.py # AI-powered investment assessment
-    8_Usage_Monitoring.py     # Usage monitoring dashboard
-    9_Predictive_Analysis.py  # Predictive analysis and forecasting
-    10_Sentiment_Analysis.py  # News sentiment analysis
-  data/                        # Local data storage
-    portfolio_*.json          # User portfolio holdings
-    settings.json             # App settings
-    users.json                # User authentication data
-    gemini_usage.json         # AI usage tracking
-    backups/                  # Automatic backups
-  documentations/              # Documentation files
-    README.md                 # Documentation index
-    DATA_README.md            # Data structure documentation
-    GEMINI_SETUP.md          # Gemini API setup guide
-    GEMINI_MONITORING_SETUP.md # Gemini monitoring setup
-    HUGGINGFACE_SETUP.md     # Hugging Face setup guide
-    LOGIN_SETUP.md           # Authentication setup guide
-    TECHNICAL_ANALYSIS_README.md # Technical analysis documentation
-    SENTIMENT_ANALYSIS_README.md # Sentiment analysis documentation
-    PREDICTIVE_ANALYSIS_README.md # Predictive analysis documentation
-  requirements.txt
-  README.md                   # This file
-  .gitignore                  # Git ignore rules
-  .venv/                      # Local virtual environment (not required to commit)
-```
+## Common tasks
 
-You can also run a specific page directly (Streamlit will mount it as the only page):
 ```bash
-streamlit run pages/1_Portfolio_Overview.py
+cd web && npm run build && npm start    # production build of the web app
+cd web && npx eslint src && npx tsc --noEmit   # lint and type-check
+python3 setup_sentiment.py              # verify sentiment setup
 ```
 
-### Troubleshooting
-- **🔐 Authentication Issues**: 
-  - If login fails, check that `users.json` exists in the `data/` directory
-  - Reset password using the "Change Password" option in the user menu
-  - See [Authentication Setup Guide](documentations/LOGIN_SETUP.md) for detailed help
+The API serves interactive docs at http://localhost:8000/docs while it's running.
 
-- **📊 Data Issues**: 
-  - If `yfinance` fails to fetch data, check your internet connection and try again
-  - Some tickers may be unavailable or delisted
-  - Try using different ticker symbols or check Yahoo Finance directly
+## Troubleshooting
 
-- **🤖 AI Features Not Working**:
-  - Ensure your `.env` file contains valid API keys
-  - Check [Gemini Setup Guide](documentations/GEMINI_SETUP.md) for configuration help
-  - Monitor usage in the Usage Monitoring page to track API limits
+- **"Prices unavailable for …"**: Yahoo Finance is rate-limiting. After a failure the app skips Yahoo for 5 minutes and uses Finnhub for US-listed symbols, so add `FINN_API_KEY`. Foreign listings (for example `005930.KS`) depend on Yahoo alone.
+- **Forgot your password**: choose **Forgot password?** on the sign-in page. Without email set up, the reset link appears in the terminal running `./dev.sh`. You can also run `python3 -m backend.manage reset-link <username>`. See [Password reset](documentations/CONFIGURATION.md#password-reset).
+- **Signed out unexpectedly**: sessions last 7 days, and changing or resetting a password signs out other devices. If `data/.session_secret` changes (or `SESSION_SECRET` does), existing sessions become invalid.
+- **AI Assessment button disabled**: `GEMINI_API_KEY` is missing or still the placeholder. Restart the API after editing `.env`.
+- **Requests time out after 30 seconds**: the web app's proxy allows 180 seconds (`web/next.config.ts`). If you run the API behind another proxy, raise its timeout too.
+- **Port already in use**: stop the old process, or pick other ports: `API_PORT=8001 WEB_PORT=3001 ./dev.sh`. The script passes ports explicitly, so a `PORT` variable in your shell is ignored.
 
-- **🔧 Technical Issues**:
-  - **SSL/Cert Errors**: Upgrade `certifi` and `requests`:
-    ```bash
-    pip install --upgrade certifi requests
-    ```
-  - **Streamlit Won't Start**: Confirm you're using the project venv:
-    ```bash
-    source .venv/bin/activate
-    python --version
-    which streamlit
-    ```
-  - **Currency Conversion**: If exchange rates fail, the app will fallback to 1:1 conversion and show a warning
-  - **Data Storage**: If you encounter JSON errors, check the `data/` directory permissions and try creating a backup
+## Disclaimer
 
-### Updating Dependencies
-```bash
-source .venv/bin/activate
-pip install -U pip
-pip install -U -r requirements.txt
-```
+Market data may be delayed. Model and AI outputs are statistical estimates, not financial advice.
 
-To re-freeze (pin) dependencies after updates:
-```bash
-pip freeze --exclude-editable > requirements.txt
-```
+## License
 
-### 🚀 Quick Start Guide
-1. **Install dependencies**: `pip install -r requirements.txt`
-2. **Configure environment**: `cp config.env.example .env`
-3. **Start the app**: `streamlit run Portfolio.py`
-4. **Create account**: Use the Sign Up page to create your first user account
-5. **Build portfolio**: Add stocks using the Portfolio Builder page
-6. **Explore features**: Try Technical Analysis, Fundamental Analysis, and AI Investment Assessment
-
-### Documentation
-📖 **[Complete Documentation Index](documentations/README.md)** - Start here for all setup guides and feature documentation
-
-Quick links to key setup guides:
-- **[Authentication Setup](documentations/LOGIN_SETUP.md)** - User authentication and login system configuration
-- **[Gemini API Setup](documentations/GEMINI_SETUP.md)** - Google Gemini API integration for AI features
-- **[Sentiment Analysis Setup](documentations/SENTIMENT_ANALYSIS_README.md)** - SERPapi integration and sentiment analysis configuration
-- **[Technical Analysis](documentations/TECHNICAL_ANALYSIS_README.md)** - Technical analysis features and indicators
-- **[Data Structure](documentations/DATA_README.md)** - Data storage and structure documentation
-
-### License
 Personal/educational use. Add your preferred license here if distributing.
-
-

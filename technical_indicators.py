@@ -23,7 +23,8 @@ class TechnicalAnalysis:
 
     def calculate_rsi(self, period=14):
         """
-        Calculate Relative Strength Index (RSI).
+        Calculate Relative Strength Index (RSI) using Wilder's smoothing
+        (alpha = 1/period), matching Wilder (1978) and charting platforms.
 
         Args:
             period (int): RSI calculation period (default: 14)
@@ -35,8 +36,8 @@ class TechnicalAnalysis:
         gains = delta.where(delta > 0, 0)
         losses = -delta.where(delta < 0, 0)
 
-        avg_gains = gains.ewm(span=period, min_periods=period).mean()
-        avg_losses = losses.ewm(span=period, min_periods=period).mean()
+        avg_gains = gains.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+        avg_losses = losses.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
 
         rs = avg_gains / avg_losses
         rsi = 100 - (100 / (1 + rs))
@@ -76,7 +77,8 @@ class TechnicalAnalysis:
             tuple: (upper_band, middle_band, lower_band, %B, band_width)
         """
         middle_band = self.prices.rolling(window=period).mean()
-        rolling_std = self.prices.rolling(window=period).std()
+        # Population standard deviation, as defined by Bollinger
+        rolling_std = self.prices.rolling(window=period).std(ddof=0)
 
         upper_band = middle_band + (rolling_std * std_dev)
         lower_band = middle_band - (rolling_std * std_dev)
@@ -89,12 +91,12 @@ class TechnicalAnalysis:
 
         return upper_band, middle_band, lower_band, bb_percent, band_width
 
-    def calculate_moving_averages(self, periods=[5, 10, 20, 50]):
+    def calculate_moving_averages(self, periods=[5, 10, 20, 50, 200]):
         """
         Calculate Simple and Exponential Moving Averages.
 
         Args:
-            periods (list): List of periods to calculate (default: [5, 10, 20, 50])
+            periods (list): List of periods to calculate (default: [5, 10, 20, 50, 200])
 
         Returns:
             dict: Dictionary with SMA and EMA for each period
@@ -104,6 +106,69 @@ class TechnicalAnalysis:
             mas[f'SMA_{period}'] = self.prices.rolling(window=period).mean()
             mas[f'EMA_{period}'] = self.prices.ewm(span=period, min_periods=period).mean()
         return mas
+
+    def _wilder(self, series, period):
+        """Wilder's smoothing (an EMA with alpha = 1/period)."""
+        return series.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+
+    def _true_range(self):
+        prev_close = self.prices.shift(1)
+        high, low = self.data['High'], self.data['Low']
+        return pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+
+    def calculate_atr(self, period=14):
+        """
+        Calculate Average True Range (ATR), Wilder (1978).
+
+        Args:
+            period (int): ATR period (default: 14)
+
+        Returns:
+            pd.Series: ATR values in price units
+        """
+        return self._wilder(self._true_range(), period)
+
+    def calculate_adx(self, period=14):
+        """
+        Calculate the Average Directional Index (ADX) and directional indicators, Wilder (1978).
+
+        Args:
+            period (int): ADX period (default: 14)
+
+        Returns:
+            tuple: (adx, plus_di, minus_di)
+        """
+        up = self.data['High'].diff()
+        down = -self.data['Low'].diff()
+        plus_dm = up.where((up > down) & (up > 0), 0.0)
+        minus_dm = down.where((down > up) & (down > 0), 0.0)
+
+        atr = self.calculate_atr(period)
+        plus_di = 100 * self._wilder(plus_dm, period) / atr
+        minus_di = 100 * self._wilder(minus_dm, period) / atr
+        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+
+        return self._wilder(dx, period), plus_di, minus_di
+
+    def calculate_momentum(self, lookback=252, skip=21):
+        """
+        Calculate 12-1 month momentum: the return from ``lookback`` to ``skip`` trading
+        days ago, skipping the most recent month (Jegadeesh & Titman, 1993).
+
+        Returns:
+            pd.Series: Momentum as a fraction (0.25 == +25%)
+        """
+        return self.prices.shift(skip) / self.prices.shift(lookback) - 1
+
+    def calculate_52w_high_distance(self, window=252):
+        """
+        Calculate distance from the 52-week high (George & Hwang, 2004).
+
+        Returns:
+            tuple: (rolling 52-week high, distance as a fraction, 0 at the high and negative below it)
+        """
+        high = self.data['High'].rolling(window=window, min_periods=window).max()
+        return high, self.prices / high - 1
 
     def calculate_obv(self):
         """
@@ -115,16 +180,8 @@ class TechnicalAnalysis:
         if self.volumes is None:
             return pd.Series(index=self.prices.index, dtype=float)
 
-        obv = [0]
-        for i in range(1, len(self.prices)):
-            if self.prices.iloc[i] > self.prices.iloc[i-1]:
-                obv.append(obv[-1] + self.volumes.iloc[i])
-            elif self.prices.iloc[i] < self.prices.iloc[i-1]:
-                obv.append(obv[-1] - self.volumes.iloc[i])
-            else:
-                obv.append(obv[-1])
-
-        return pd.Series(obv, index=self.prices.index)
+        direction = np.sign(self.prices.diff()).fillna(0)
+        return (direction * self.volumes).cumsum().astype(float)
 
     def get_signals(self, indicators=None):
         """
@@ -230,6 +287,17 @@ class TechnicalAnalysis:
 
         # OBV
         data_with_indicators['OBV'] = self.calculate_obv()
+
+        # Trend strength and volatility
+        adx, plus_di, minus_di = self.calculate_adx()
+        data_with_indicators['ADX'] = adx
+        data_with_indicators['Plus_DI'] = plus_di
+        data_with_indicators['Minus_DI'] = minus_di
+        data_with_indicators['ATR'] = self.calculate_atr()
+
+        # Long-horizon momentum
+        data_with_indicators['Momentum_12_1'] = self.calculate_momentum()
+        data_with_indicators['High_52w'], data_with_indicators['Dist_52w_High'] = self.calculate_52w_high_distance()
 
         return data_with_indicators
 

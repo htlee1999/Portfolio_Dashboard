@@ -123,10 +123,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Streamlit
-.streamlit/*
-!.streamlit/config.toml
-.streamlit/secrets.toml
 
 # IDE
 .vscode/
@@ -137,3 +133,9 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Next.js frontend: the rules above ignore *.json and lib/, which the web app needs
+!web/*.json
+!web/src/lib/
+web/node_modules/
+web/.next/

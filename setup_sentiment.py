@@ -270,11 +270,11 @@ def main():
     
     print_success("All components are installed and configured!")
     print_info("\nNext steps:")
-    print("  1. Run the Streamlit app: streamlit run Portfolio.py")
-    print("  2. Navigate to 'Sentiment Analysis' in the sidebar")
-    print("  3. Enter a stock symbol and click 'Analyze Sentiment'")
+    print("  1. Start the app: ./dev.sh  (then open http://localhost:3000)")
+    print("  2. Open Research → Sentiment")
+    print("  3. Pick a symbol and click 'Analyze Sentiment'")
     print("\n📚 For more information, see:")
-    print("  - documentations/SENTIMENT_ANALYSIS_README.md")
+    print("  - documentations/FEATURES.md#sentiment")
     print("  - https://serpapi.com/google-finance-api")
     
     print("\n💡 Tip: Free SERPapi accounts have a limit of 100 searches/month")

@@ -1,0 +1,326 @@
+@import "tailwindcss";
+
+/* Dark variant follows the resolved theme: OS preference unless the user picks one. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Semantic tokens (Apple HIG system colors). Every surface, label and accent
+   is referenced by role, so light/dark swap in one place.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  /* Backgrounds (grouped style) */
+  --bg: #f2f2f7;
+  --bg-elevated: #ffffff;
+  --bg-tertiary: #f2f2f7;
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-secondary: rgba(120, 120, 128, 0.08);
+  --fill-strong: rgba(120, 120, 128, 0.2);
+
+  /* Labels */
+  --label: #000000;
+  --label-secondary: rgba(60, 60, 67, 0.6);
+  --label-tertiary: rgba(60, 60, 67, 0.3);
+  --separator: rgba(60, 60, 67, 0.16);
+  --separator-opaque: #c6c6c8;
+
+  /* Accents: used only where guidance or action is required */
+  --tint: #007aff;
+  --tint-pressed: #0062cc;
+  --tint-fill: rgba(0, 122, 255, 0.12);
+  --on-tint: #ffffff;
+
+  /* Status (text-safe variants) */
+  --positive: #248a3d;
+  --negative: #d70015;
+  --warning: #b25000;
+  --positive-fill: rgba(52, 199, 89, 0.14);
+  --negative-fill: rgba(255, 59, 48, 0.12);
+  --warning-fill: rgba(255, 149, 0, 0.14);
+
+  /* Materials (translucent, vibrant) */
+  --material-chrome: rgba(246, 246, 248, 0.72);
+  --material-thick: rgba(255, 255, 255, 0.82);
+  --material-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(0, 0, 0, 0.08);
+
+  /* Elevation */
+  --shadow-card: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* Chart chrome + categorical series (validated palette, fixed order) */
+  --chart-grid: rgba(60, 60, 67, 0.1);
+  --chart-axis: rgba(60, 60, 67, 0.45);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-muted: #8e8e93;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --bg-elevated: #1c1c1e;
+  --bg-tertiary: #2c2c2e;
+  --fill: rgba(120, 120, 128, 0.24);
+  --fill-secondary: rgba(120, 120, 128, 0.16);
+  --fill-strong: rgba(120, 120, 128, 0.36);
+
+  --label: #ffffff;
+  --label-secondary: rgba(235, 235, 245, 0.6);
+  --label-tertiary: rgba(235, 235, 245, 0.3);
+  --separator: rgba(84, 84, 88, 0.6);
+  --separator-opaque: #38383a;
+
+  --tint: #0a84ff;
+  --tint-pressed: #409cff;
+  --tint-fill: rgba(10, 132, 255, 0.2);
+
+  --positive: #30d158;
+  --negative: #ff453a;
+  --warning: #ffd60a;
+  --positive-fill: rgba(48, 209, 88, 0.16);
+  --negative-fill: rgba(255, 69, 58, 0.16);
+  --warning-fill: rgba(255, 214, 10, 0.14);
+
+  --material-chrome: rgba(28, 28, 30, 0.72);
+  --material-thick: rgba(44, 44, 46, 0.82);
+  --material-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --shadow-raised: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 4px 16px rgba(0, 0, 0, 0.4);
+
+  --chart-grid: rgba(235, 235, 245, 0.1);
+  --chart-axis: rgba(235, 235, 245, 0.45);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-muted: #8e8e93;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elevated: var(--bg-elevated);
+  --color-tertiary: var(--bg-tertiary);
+  --color-fill: var(--fill);
+  --color-fill-2: var(--fill-secondary);
+  --color-fill-strong: var(--fill-strong);
+  --color-label: var(--label);
+  --color-label-2: var(--label-secondary);
+  --color-label-3: var(--label-tertiary);
+  --color-separator: var(--separator);
+  --color-tint: var(--tint);
+  --color-tint-fill: var(--tint-fill);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-positive-fill: var(--positive-fill);
+  --color-negative-fill: var(--negative-fill);
+  --color-warning-fill: var(--warning-fill);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Helvetica Neue", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  /* Continuous-corner radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Base
+   ────────────────────────────────────────────────────────────────────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--label);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.47;
+  letter-spacing: -0.009em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern";
+}
+
+::selection {
+  background: var(--tint-fill);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tint) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Type scale — hierarchy from weight, size and inverse tracking:
+   large type tracks tighter, small type tracks looser.
+   ────────────────────────────────────────────────────────────────────────── */
+@utility text-large-title {
+  font-size: 34px;
+  line-height: 41px;
+  font-weight: 700;
+  letter-spacing: -0.026em;
+}
+@utility text-title-1 {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+@utility text-title-2 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+@utility text-title-3 {
+  font-size: 20px;
+  line-height: 25px;
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+@utility text-headline {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+@utility text-body {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 400;
+  letter-spacing: -0.009em;
+}
+@utility text-callout {
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.006em;
+}
+@utility text-footnote {
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: -0.002em;
+}
+@utility text-caption {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.004em;
+}
+@utility text-overline {
+  font-size: 11px;
+  line-height: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+@utility text-hero {
+  font-size: clamp(40px, 6vw, 56px);
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Squircle geometry: continuous corners where the browser supports them. */
+@utility squircle {
+  @supports (corner-shape: squircle) {
+    corner-shape: superellipse(1.6);
+  }
+}
+
+/* Translucent chrome with vibrancy */
+@utility material-chrome {
+  background: var(--material-chrome);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+}
+@utility material-thick {
+  background: var(--material-thick);
+  -webkit-backdrop-filter: saturate(180%) blur(32px);
+  backdrop-filter: saturate(180%) blur(32px);
+  box-shadow: var(--material-shadow);
+}
+
+@utility hairline-b {
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+}
+@utility hairline-t {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+
+/* Prose for AI reasoning / company summaries */
+.prose-apple p + p {
+  margin-top: 0.75em;
+}
+
+/* Native range input styled as an Apple slider */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"].slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--tint) var(--fill-pct, 50%), var(--fill-strong) var(--fill-pct, 50%));
+}
+input[type="range"].slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-strong);
+}
+input[type="range"].slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tint);
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+input[type="range"].slider:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+input[type="range"].slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+}
+
+@media (forced-colors: active) {
+  .material-chrome,
+  .material-thick {
+    background: Canvas;
+  }
+}
