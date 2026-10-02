@@ -196,7 +196,7 @@ function Snapshot({ ctx }: { ctx: AssessmentContext }) {
         <SignalCard
           title="Fundamental"
           lines={[
-            ["P/E", f.headline.pe ? `${number(f.headline.pe, 1)}×` : "—"],
+            ["P/E", f.headline.pe ? `${number(f.headline.pe, 1)}×` : f.headline.loss_making ? "n/m · loss-making" : "—"],
             ["Analysts", f.analyst.recommendation_key?.replace("_", " ") ?? "—"],
             ["Target", f.analyst.upside_pct != null ? pct(f.analyst.upside_pct, 1) : "—"],
           ]}

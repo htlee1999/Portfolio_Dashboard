@@ -129,12 +129,71 @@ export type SignalBacktest = {
   }[];
 };
 
-export type Ratio = { label: string; value: number | null; unit: "x" | "fraction" | "percent" };
+/** `note` explains a missing or distorted value, e.g. a negative multiple or a ratio that doesn't apply to banks. */
+export type Ratio = { key: string; label: string; value: number | null; unit: "x" | "fraction" | "percent"; note: string | null };
+
+/** A measure computed from the statements; `tone` grades it against the rule of thumb in `hint`. */
+export type Metric = {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: "x" | "fraction" | "number";
+  tone: "good" | "bad" | "neutral" | null;
+  hint: string;
+  note: string | null;
+};
+
+export type Piotroski = {
+  score: number;
+  tested: number;
+  state: "strong" | "middle" | "weak";
+  tests: { label: string; passed: boolean | null; group: "profitability" | "funding" | "efficiency" }[];
+};
+
+export type EarningsRecord = {
+  surprises: { quarter: string; actual: number | null; estimate: number | null; surprise_pct: number | null }[];
+  beats: number;
+  estimates: { period: string; label: string; current: number | null; change_30d: number | null; change_90d: number | null; up_30d: number | null; down_30d: number | null }[];
+  next_date: string | null;
+};
+
+/** A measure at each past fiscal year-end (oldest first) against today's trailing-12-month figure. */
+export type HistoryRow = {
+  key: string;
+  label: string;
+  unit: "x" | "fraction";
+  better: "lower" | "higher";
+  valuation: boolean;
+  values: (number | null)[];
+  now: number | null;
+  median: number;
+  low: number;
+  high: number;
+  vs_median: number | null;
+  verdict: "cheaper" | "pricier" | "better" | "worse" | "in line" | null;
+};
+
+export type StatementRow = { label: string; values: (number | null)[]; growth: (number | null)[]; cagr: number | null };
 
 export type Fundamentals = {
   symbol: string;
-  profile: { name: string; sector: string | null; industry: string | null; country: string | null; website: string | null; employees: number | null; summary: string | null; currency: string };
-  headline: { price: number | null; market_cap: number | null; enterprise_value: number | null; pe: number | null; forward_pe: number | null; week52_low: number | null; week52_high: number | null };
+  profile: {
+    name: string;
+    sector: string | null;
+    industry: string | null;
+    country: string | null;
+    website: string | null;
+    employees: number | null;
+    summary: string | null;
+    /** Currency the shares trade in. */
+    currency: string;
+    /** Currency the statements are reported in (differs for ADRs, e.g. TSM reports in TWD). */
+    financial_currency: string;
+    kind: "general" | "financial" | "reit";
+    kind_note: string | null;
+  };
+  as_of: { ratios: string | null; statements: string | null };
+  headline: { price: number | null; market_cap: number | null; enterprise_value: number | null; pe: number | null; forward_pe: number | null; loss_making: boolean; week52_low: number | null; week52_high: number | null };
   ratios: Record<string, Ratio[]>;
   analyst: {
     target_mean: number | null;
@@ -147,7 +206,11 @@ export type Fundamentals = {
     dividend_yield_pct: number | null;
     payout_ratio: number | null;
   };
-  statements: Record<"income" | "balance" | "cashflow", { years: string[]; rows: { label: string; values: (number | null)[] }[] }>;
+  quality: { piotroski: Piotroski | null; metrics: Metric[] };
+  risk: { metrics: Metric[] };
+  earnings: EarningsRecord;
+  history: { years: string[]; rows: HistoryRow[] };
+  statements: Record<"income" | "balance" | "cashflow", { years: string[]; rows: StatementRow[] }>;
 };
 
 export type ModelResult = { name: string; metrics: { rmse: number; mae: number; directional_accuracy: number | null }; next_close: number };

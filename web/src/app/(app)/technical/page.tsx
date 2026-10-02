@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Download, ExternalLink, SlidersHorizontal } from "lucide-react";
+import { BookOpen, Download, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 
 import { SERIES, SignedBars, TimeSeries } from "@/components/charts/charts";
@@ -11,11 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Segmented, Slider } from "@/components/ui/controls";
 import { Banner, LoadingBlock } from "@/components/ui/feedback";
+import { EvidenceGuide, EvidenceTag } from "@/components/ui/evidence";
 import { Disclosure } from "@/components/ui/overlay";
 import { Delta } from "@/components/ui/stat";
 import { useToast } from "@/components/ui/toast";
 import { download, useApi } from "@/lib/api";
-import { EVIDENCE_LABEL, EVIDENCE_TONE, INDICATORS, type IndicatorKey } from "@/lib/indicator-evidence";
+import { INDICATORS, type IndicatorKey } from "@/lib/indicator-evidence";
 import { PERIODS, compact, money, number, pct, shortDate } from "@/lib/format";
 import type { SignalBacktest, Technical } from "@/lib/types";
 
@@ -333,7 +334,7 @@ function SignalRow({ label, items }: { label: string; items: Item[] }) {
             <Badge tone={i.badge.tone} className="mt-2 self-start">
               {i.badge.text}
             </Badge>
-            <EvidenceTag id={i.id} />
+            <EvidenceTag info={INDICATORS[i.id]} className="mt-auto pt-3" />
           </Card>
         ))}
       </div>
@@ -447,69 +448,12 @@ function BacktestCard({ symbol, params }: { symbol: string; params: typeof DEFAU
   );
 }
 
-const EVIDENCE_DOT = { strong: "bg-positive", mixed: "bg-warning", weak: "bg-label-3", risk: "bg-tint" } as const;
-
-function EvidenceTag({ id }: { id: IndicatorKey }) {
-  const evidence = INDICATORS[id].evidence;
-  return (
-    <div className="mt-auto flex items-center gap-1.5 pt-3 text-caption text-label-2" title={INDICATORS[id].verdict}>
-      <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${EVIDENCE_DOT[evidence]}`} />
-      {EVIDENCE_LABEL[evidence]}
-    </div>
-  );
-}
-
 function Guide() {
   return (
-    <div className="space-y-5">
-      <p className="text-callout text-label-2">
-        Evidence ratings summarise peer-reviewed research on whether each signal has predicted future returns, as this page uses it.
-        Strong means the effect has held across decades and markets; weak means tests found little or no edge after trading costs.
-      </p>
-      <dl className="divide-y divide-separator">
-        {(Object.keys(INDICATORS) as IndicatorKey[]).map((id) => {
-          const info = INDICATORS[id];
-          return (
-            <div key={id} className="space-y-2 py-4 first:pt-0">
-              <dt className="flex flex-wrap items-center gap-2">
-                <span className="text-callout font-semibold">{info.name}</span>
-                <Badge tone={EVIDENCE_TONE[info.evidence]}>{EVIDENCE_LABEL[info.evidence]}</Badge>
-              </dt>
-              <dd className="space-y-2 text-callout">
-                <p className="text-label-2">{info.read}</p>
-                <p>
-                  <span className="font-semibold">Evidence: </span>
-                  <span className="text-label-2">{info.verdict}</span>
-                </p>
-                <ul className="space-y-1 text-footnote text-label-2">
-                  {"learn" in info && info.learn && (
-                    <li>
-                      <SourceLink href={info.learn}>How it works: StockCharts ChartSchool</SourceLink>
-                    </li>
-                  )}
-                  {info.sources.map((src) => (
-                    <li key={src.cite}>
-                      {"url" in src && src.url ? <SourceLink href={src.url}>{src.cite}</SourceLink> : src.cite}
-                    </li>
-                  ))}
-                </ul>
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-      <p className="text-footnote text-label-2">
-        No single indicator is reliable on its own. Look for confirmation across several, and weight the ones with stronger evidence more heavily.
-      </p>
-    </div>
-  );
-}
-
-function SourceLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-baseline gap-1 text-tint hover:underline">
-      {children}
-      <ExternalLink aria-hidden className="size-3 shrink-0 self-center" />
-    </a>
+    <EvidenceGuide
+      sections={[{ items: Object.values(INDICATORS) }]}
+      intro="Evidence ratings summarise peer-reviewed research on whether each signal has predicted future returns, as this page uses it. Strong means the effect has held across decades and markets; weak means tests found little or no edge after trading costs."
+      outro="No single indicator is reliable on its own. Look for confirmation across several, and weight the ones with stronger evidence more heavily."
+    />
   );
 }

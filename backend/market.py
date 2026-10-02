@@ -54,6 +54,26 @@ def history(symbol: str, period: str = "1y") -> pd.DataFrame | None:
 
 
 @ttl_cache(3600)
+def raw_closes(symbol: str) -> pd.Series | None:
+    """Five years of closes adjusted for splits but not dividends, the prices investors
+    actually paid; dividend-adjusted history understates past valuations."""
+    symbol = normalize_symbol(symbol)
+    if not yahoo_available():
+        return None
+    try:
+        data = yf.Ticker(symbol).history(period="5y", auto_adjust=False)
+    except Exception:
+        _trip_yahoo()
+        return None
+    if data is None or data.empty:
+        return None
+    _reset_yahoo()
+    close = data["Close"].dropna()
+    close.index = close.index.tz_localize(None)
+    return close
+
+
+@ttl_cache(3600)
 def info(symbol: str) -> dict | None:
     """yfinance ``Ticker.info`` (company profile and valuation fields)."""
     symbol = normalize_symbol(symbol)
@@ -82,6 +102,24 @@ def statements(symbol: str) -> dict | None:
     except Exception:
         _trip_yahoo()
         return None
+
+
+@ttl_cache(3600)
+def earnings(symbol: str) -> dict | None:
+    """Recent EPS against estimates, and how analysts' estimates have moved."""
+    symbol = normalize_symbol(symbol)
+    if not yahoo_available():
+        return None
+    t = yf.Ticker(symbol)
+    result = {}
+    # Each dataset is missing for many non-US listings, so a failure here isn't an outage.
+    for key, attr in (("history", "earnings_history"), ("trend", "eps_trend"), ("revisions", "eps_revisions")):
+        try:
+            frame = getattr(t, attr)
+            result[key] = frame if isinstance(frame, pd.DataFrame) and not frame.empty else None
+        except Exception:
+            result[key] = None
+    return result
 
 
 def _to_finnhub_symbol(symbol: str) -> str | None:

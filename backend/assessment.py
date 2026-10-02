@@ -56,24 +56,90 @@ def _momentum(signals: dict) -> float | None:
     return _clamp(sum(parts) / len(parts)) if parts else None
 
 
+def _mean(parts: list[float | None]) -> float | None:
+    parts = [x for x in parts if x is not None]
+    return sum(parts) / len(parts) if parts else None
+
+
+def _fundamental_scores(fund: dict) -> dict[str, float | None]:
+    """Absolute rules of thumb; without sector data a score can't say "cheap for its industry"."""
+    r = {x["key"]: x["value"] for group in fund["ratios"].values() for x in group}
+    m = {x["key"]: x["value"] for x in fund["quality"]["metrics"] + fund["risk"]["metrics"]}
+    h, financial = fund["headline"], fund["profile"].get("kind") == "financial"
+
+    # Valuation on yields rather than P/E, so loss-makers score low instead of neutral.
+    # A 10% earnings yield (P/E 10) scores 100; 5% (P/E 20) scores 50.
+    earnings_yield = -0.05 if h.get("loss_making") else 1 / r["trailingPE"] if r.get("trailingPE") else None
+    ev_ebitda = r.get("enterpriseToEbitda")
+    absolute = _mean([
+        None if earnings_yield is None else _clamp(earnings_yield * 1000),
+        None if ev_ebitda is None else _clamp(100 - (ev_ebitda - 6) * 4),  # 6x → 100, 31x → 0
+    ])
+    # Against the company's own fiscal-year history: 20% cheaper than its median scores 70.
+    relative = _mean([
+        _clamp(50 + (row["vs_median"] if row["better"] == "higher" else -row["vs_median"]) * 100)
+        for row in fund.get("history", {}).get("rows", []) if row["valuation"] and row["vs_median"] is not None
+    ])
+    valuation = _mean([absolute, relative])
+
+    growth = r.get("annualRevenueGrowth")
+    if growth is None:
+        growth = r.get("revenueGrowth")
+
+    # ROE suits banks; for other companies ROA and operating margin aren't distorted by buybacks.
+    if financial:
+        profitability = None if r.get("returnOnEquity") is None else _clamp(r["returnOnEquity"] * 500)
+    else:
+        profitability = _mean([
+            None if r.get("returnOnAssets") is None else _clamp(r["returnOnAssets"] * 500),     # 20% → 100
+            None if r.get("operatingMargins") is None else _clamp(r["operatingMargins"] * 250),  # 40% → 100
+            None if m.get("gross_profitability") is None else _clamp(m["gross_profitability"] * 250),  # 40% → 100
+        ])
+
+    de, current = r.get("debtToEquity"), r.get("currentRatio")  # D/E in percent: 150 == 1.5x
+    z, cover, net_debt = m.get("altman_z"), m.get("interest_coverage"), m.get("net_debt_ebitda")
+    balance = _mean([
+        None if de is None else _clamp(100 - de / 100 * 40),
+        None if current is None else _clamp((current - 0.5) * 100),  # 1.0 → 50, 1.5 → 100
+        None if z is None else _clamp(25 + (z - 1.1) / 1.5 * 50),     # distress line 25, safe line 75
+        None if cover is None else _clamp(cover * 10),                # 10x → 100
+        None if net_debt is None else _clamp(100 - net_debt * 25),    # net cash → 100, 4x → 0
+    ])
+
+    f_score = fund["quality"]["piotroski"]
+    earn = fund["earnings"]
+    graded = [x for x in earn["surprises"] if x["surprise_pct"] is not None]
+    year = next((x for x in earn["estimates"] if x["period"] == "0y"), None)
+    earnings = _mean([
+        earn["beats"] / len(graded) * 100 if graded else None,
+        None if not year or year["change_90d"] is None else _clamp(50 + year["change_90d"] * 5),  # +10% in 90 days → 100
+    ])
+    return {
+        "Valuation": valuation,
+        "Growth": None if growth is None else _clamp((growth * 100 + 20) * 2.5),
+        "Profitability": profitability,
+        "Balance sheet": balance,
+        "Quality": f_score["score"] / f_score["tested"] * 100 if f_score else None,
+        "Earnings": earnings,
+    }
+
+
 def _scores(tech: dict, fund: dict, pred: dict | None, sent: dict | None) -> list[dict]:
     """0-100 scores for the radar chart. 50 means neutral / unknown."""
-    ratios = {r["label"]: r["value"] for group in fund["ratios"].values() for r in group}
-    pe = ratios.get("P/E")
-    growth = ratios.get("Revenue Growth")
-    roe = ratios.get("Return on Equity")
-    de = ratios.get("Debt / Equity")  # yfinance reports as percent, e.g. 150 == 1.5x
-    momentum = _momentum(tech["signals"])
-    return [
-        {"axis": "Valuation", "score": _clamp(100 - (pe - 15) * 2) if pe else 50},
-        {"axis": "Growth", "score": _clamp((growth * 100 + 20) * 2.5) if growth is not None else 50},
-        {"axis": "Profitability", "score": _clamp(roe * 100 * 4) if roe is not None else 50},
-        {"axis": "Momentum", "score": momentum if momentum is not None else 50},
-        {"axis": "Balance sheet", "score": _clamp(100 - de / 100 * 40) if de is not None else 50},
-        {"axis": "Sentiment", "score": _clamp((sent["avg_vader"] + 1) * 50) if sent and sent["total"] else 50},
-        {"axis": "Model accuracy", "score": _clamp(pred["directional_accuracy"] * 100)
-            if pred and pred.get("directional_accuracy") is not None else 50},
-    ]
+    f = _fundamental_scores(fund)
+    raw = {
+        "Valuation": f["Valuation"],
+        "Growth": f["Growth"],
+        "Profitability": f["Profitability"],
+        "Momentum": _momentum(tech["signals"]),
+        "Balance sheet": f["Balance sheet"],
+        "Quality": f["Quality"],
+        "Earnings": f["Earnings"],
+        "Sentiment": _clamp((sent["avg_vader"] + 1) * 50) if sent and sent["total"] else None,
+        "Model accuracy": _clamp(pred["directional_accuracy"] * 100)
+        if pred and pred.get("directional_accuracy") is not None else None,
+    }
+    return [{"axis": axis, "score": 50 if score is None else score} for axis, score in raw.items()]
 
 
 def build_context(username: str, symbol: str, period: str, include_sentiment: bool) -> dict:
@@ -149,16 +215,61 @@ def _pct(fraction: float | None) -> float | None:
     return None if fraction is None else fraction * 100
 
 
+def _metric_text(x: dict) -> str:
+    v = x["value"]
+    text = x["note"] or "n/a" if v is None else f"{v * 100:.1f}%" if x["unit"] == "fraction" else f"{v:.2f}"
+    return f"{text} ({x['note']})" if v is not None and x["note"] else text
+
+
+def _history_line(f: dict) -> list[str]:
+    h = f.get("history") or {}
+    if not h.get("rows"):
+        return []
+
+    def show(row: dict, v: float) -> str:
+        return f"{v * 100:.1f}%" if row["unit"] == "fraction" else f"{v:.1f}"
+
+    parts = [
+        f"{row['label']} {show(row, row['now'])} vs median {show(row, row['median'])} "
+        f"(range {show(row, row['low'])}–{show(row, row['high'])})"
+        for row in h["rows"] if row["now"] is not None
+    ]
+    return [f"- Against its own fiscal-year history {h['years'][0]}–{h['years'][-1]} (now is trailing 12 months): "
+            + "; ".join(parts)] if parts else []
+
+
+def _quality_lines(f: dict) -> list[str]:
+    lines = _history_line(f)
+    fs = f["quality"]["piotroski"]
+    if fs:
+        lines.append(f"- Piotroski F-score {fs['score']}/{fs['tested']} ({fs['state']})")
+    metrics = f["quality"]["metrics"] + f["risk"]["metrics"]
+    lines.append("- " + ", ".join(f"{x['label']} {_metric_text(x)}" for x in metrics))
+    e = f["earnings"]
+    graded = [x for x in e["surprises"] if x["surprise_pct"] is not None]
+    if graded:
+        lines.append(f"- Beat EPS estimates in {e['beats']} of the last {len(graded)} quarters "
+                     f"(latest surprise {graded[-1]['surprise_pct']:+.1f}%)")
+    year = next((x for x in e["estimates"] if x["period"] == "0y"), None)
+    if year and year["change_90d"] is not None:
+        lines.append(f"- Current-year EPS estimate {year['change_90d']:+.1f}% over 90 days "
+                     f"({_fmt(year['up_30d'], '.0f')} up / {_fmt(year['down_30d'], '.0f')} down revisions in 30 days)")
+    if e["next_date"]:
+        lines.append(f"- Next earnings report {e['next_date']}")
+    return lines
+
+
 def _prompt(ctx: dict) -> str:
     t, f = ctx["technical"], ctx["fundamental"]
     sig = t["signals"]
-    ratios = {r["label"]: r for group in f["ratios"].values() for r in group}
+    ratios = {r["key"]: r for group in f["ratios"].values() for r in group}
 
-    def ratio(label: str) -> str:
-        r = ratios.get(label)
+    def ratio(key: str) -> str:
+        r = ratios.get(key)
         if not r or r["value"] is None:
-            return "n/a"
-        return f"{r['value'] * 100:.1f}%" if r["unit"] == "fraction" else f"{r['value']:.2f}"
+            return r["note"] if r and r.get("note") else "n/a"
+        text = f"{r['value'] * 100:.1f}%" if r["unit"] == "fraction" else f"{r['value']:.2f}"
+        return f"{text} ({r['note']})" if r.get("note") else text
 
     lines = [
         f"You are a professional equity analyst. Assess {ctx['symbol']} ({f['profile']['name']}, "
@@ -181,9 +292,14 @@ def _prompt(ctx: dict) -> str:
         f"ATR(14) {_fmt(sig['atr']['value'])} ({_fmt(sig['atr']['pct'], '.1f', '%')} of price)",
         "",
         "FUNDAMENTAL",
-        f"- P/E {ratio('P/E')}, forward P/E {ratio('Forward P/E')}, PEG {ratio('PEG')}, P/B {ratio('Price / Book')}",
-        f"- ROE {ratio('Return on Equity')}, profit margin {ratio('Profit Margin')}, revenue growth {ratio('Revenue Growth')}",
-        f"- Debt/Equity {ratio('Debt / Equity')} (percent), current ratio {ratio('Current Ratio')}",
+        *([f"- Note: {f['profile']['kind_note']}"] if f["profile"].get("kind_note") else []),
+        f"- P/E {ratio('trailingPE')}, forward P/E {ratio('forwardPE')}, PEG {ratio('pegRatio')}, "
+        f"P/B {ratio('priceToBook')}, EV/EBITDA {ratio('enterpriseToEbitda')}",
+        f"- ROE {ratio('returnOnEquity')}, ROA {ratio('returnOnAssets')}, operating margin {ratio('operatingMargins')}, "
+        f"profit margin {ratio('profitMargins')}",
+        f"- Revenue growth {ratio('annualRevenueGrowth')} last fiscal year, {ratio('revenueGrowth')} latest quarter year on year",
+        f"- Debt/Equity {ratio('debtToEquity')} (percent), current ratio {ratio('currentRatio')}, FCF yield {ratio('fcfYield')}",
+        *_quality_lines(f),
         f"- Analyst consensus {f['analyst'].get('recommendation_key') or 'n/a'}, mean target {_fmt(f['analyst'].get('target_mean'))} "
         f"({_fmt(f['analyst'].get('upside_pct'), '+.1f', '%')} upside)",
     ]
