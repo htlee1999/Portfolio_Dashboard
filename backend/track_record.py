@@ -46,6 +46,7 @@ def build(username: str) -> dict:
             "steps": h.get("steps", []),
             "position_advice": h.get("position_advice"),
             "portfolio_context": h.get("portfolio_context"),
+            "evaluation": h.get("evaluation"),
         })
     signals.sort(key=lambda s: s["timestamp"], reverse=True)
     return {"signals": signals, "symbols": symbols}

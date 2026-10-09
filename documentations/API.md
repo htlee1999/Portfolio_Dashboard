@@ -107,7 +107,21 @@ The assessment runs in two steps, so you can review the inputs before spending a
      "position_advice": "...", "summary": "...", "model": "gemini-3.5-flash-lite", "generated_at": "..." }
    ```
 
-**`POST /api/reports/assessment.pdf`** takes `{context, ai}` and returns a PDF download.
+3. **`POST /api/stocks/{symbol}/assessment/evaluate`** with `{context, ai}` (the step-2 result) picks skills by rule, computes their facts, and asks Gemini to review the recommendation. It never changes the recommendation, and confidence can only go down. The result is attached to the matching history record when `ai.generated_at` matches one (`saved`):
+
+   ```jsonc
+   { "verdict": "stands" | "weakened" | "contradicted", "confidence_adjusted": 1-10, "original_confidence": 7,
+     "recommendation": "BUY", "summary": "...",
+     "findings": [{ "skill": "valuation-sanity", "stance": "supports" | "challenges" | "neutral",
+                    "severity": "info" | "minor" | "major", "finding": "..." }],
+     "counter_case": "...", "invalidation": ["..."],
+     "entry_plan": { "approach": "all_at_once" | "staged" | "wait", "detail": "...", "size": "...", "review_when": "..." } | null,
+     "skills": [{ "name", "title", "description", "applies_when", "evidence", "rationale", "sources": [{ "cite", "url" }] }],
+     "checks": [{ "skill", "check", "passed": true, "detail": "..." }],
+     "model": "gemini-3.5-flash-lite", "generated_at": "...", "saved": true }
+   ```
+
+**`POST /api/reports/assessment.pdf`** takes `{context, ai, evaluation?}` and returns a PDF download.
 
 ## Track record and usage
 

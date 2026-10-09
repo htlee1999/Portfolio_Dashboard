@@ -155,3 +155,14 @@ def append_history(username: str, record: dict) -> None:
     history = load_history(username)
     history.append(record)
     save_json(history_path(username), history)
+
+
+def update_history(username: str, symbol: str, timestamp: str, fields: dict) -> bool:
+    """Merge ``fields`` into the record for ``symbol`` saved at ``timestamp``. False if none matches."""
+    history = load_history(username)
+    for record in history:
+        if record.get("symbol") == symbol and record.get("timestamp") == timestamp:
+            record.update(fields)
+            save_json(history_path(username), history)
+            return True
+    return False

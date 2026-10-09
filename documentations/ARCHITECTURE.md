@@ -43,6 +43,8 @@ The backend is a Python package run from the repository root as `uvicorn backend
 | `volatility.py` | GARCH(1,1) with Student-t errors for the next-session range |
 | `sentiment.py` | SERPapi news fetch, headline filtering (window, duplicates, routine filings, firm-specific), financial-news model scoring with VADER fallback |
 | `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini with a response schema and records the result |
+| `evaluation.py` | Second look at an assessment: picks skills by rule, computes their facts and rule screens, one Gemini review, enforces that it can only flag and lower confidence |
+| `skills/*/SKILL.md` | The evaluation's skills: instructions, when each applies, evidence rating and sources (Agent Skills format) |
 | `reports.py` | Renders an assessment as a PDF (reportlab) |
 | `track_record.py` | Scores historical recommendations against current prices |
 | `usage.py` | Appends to and summarizes `data/gemini_usage.json` |
@@ -123,4 +125,4 @@ src/
 
 - The JSON store suits a single small server. Writes are atomic per file, but there is no cross-process locking: run one API process.
 - Holding deletion is by list index. The client refetches after each change, so indexes stay in sync for a single user.
-- The AI step (`POST /stocks/{symbol}/assessment/ai`) trusts the context the client sends back from step 1, instead of recomputing it. That avoids spending SERPapi credits twice, and is fine because users only write to their own history.
+- The AI and evaluation steps (`…/assessment/ai`, `…/assessment/evaluate`) trust the context the client sends back from step 1, instead of recomputing it. That avoids spending SERPapi credits twice, and is fine because users only write to their own history.

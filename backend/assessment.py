@@ -410,8 +410,10 @@ def generate(username: str, ctx: dict) -> dict:
 
     out = result.model_dump()
     pos = ctx.get("position")
+    # The timestamp doubles as the record's key, so an evaluation can be attached to it later.
+    generated_at = datetime.now().isoformat()
     append_history(username, {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": generated_at,
         "symbol": ctx["symbol"],
         "recommendation": out["recommendation"],
         "confidence": out["confidence"],
@@ -429,4 +431,4 @@ def generate(username: str, ctx: dict) -> dict:
             "unrealized_pct": pos["unrealized_pct"],
         },
     })
-    return {**out, "model": MODEL, "generated_at": datetime.now().isoformat()}
+    return {**out, "model": MODEL, "generated_at": generated_at}

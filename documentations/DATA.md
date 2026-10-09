@@ -78,10 +78,15 @@ An array, appended once per AI assessment:
     "reasoning": "One-paragraph summary",
     "steps": [{ "title": "Technical picture", "content": "..." }],
     "position_advice": "...",
-    "portfolio_context": { "avg_purchase_price": 121.28, "total_quantity": 98, "unrealized_pct": 407.7 }
+    "portfolio_context": { "avg_purchase_price": 121.28, "total_quantity": 98, "unrealized_pct": 407.7 },
+    "evaluation": { "verdict": "weakened", "confidence_adjusted": 5, "summary": "...", "findings": [...],
+                    "counter_case": "...", "invalidation": [...], "entry_plan": null,
+                    "skills": ["claim-check", "counter-case", "..."], "generated_at": "..." }
   }
 ]
 ```
+
+`evaluation` is present only when **Evaluate** was run on that assessment. `timestamp` identifies the record: it equals the assessment's `generated_at`.
 
 Records written by the original Streamlit version have no `steps` or `position_advice`, and `reasoning` holds the full AI response. The Track Record handles both shapes.
 

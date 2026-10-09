@@ -124,7 +124,9 @@ export default function TrackRecordPage() {
                     <Badge tone={REC_TONE[s.recommendation]}>{s.recommendation}</Badge>
                   </span>
                 }
-                subtitle={`${shortDate(s.timestamp, true)} · confidence ${s.confidence ?? "—"}/10`}
+                subtitle={`${shortDate(s.timestamp, true)} · confidence ${s.confidence ?? "—"}/10${
+                  s.evaluation ? ` · second look: ${EVAL_LABEL[s.evaluation.verdict].toLowerCase()}, ${s.evaluation.confidence_adjusted}/10` : ""
+                }`}
                 trailing={
                   <span className="flex flex-col items-end gap-0.5">
                     <Delta value={s.return_pct} className="text-callout">{pct(s.return_pct, 1)}</Delta>
@@ -157,6 +159,19 @@ export default function TrackRecordPage() {
                       <p className="line-clamp-[12] whitespace-pre-line text-label-2">{s.reasoning}</p>
                     </div>
                   )}
+                  {s.evaluation && (
+                    <div>
+                      <div className="mb-1 flex items-center gap-2 font-semibold">
+                        Second look <Badge tone={EVAL_TONE[s.evaluation.verdict]}>{EVAL_LABEL[s.evaluation.verdict]}</Badge>
+                      </div>
+                      <p className="text-label-2">{s.evaluation.summary}</p>
+                      <List
+                        title="Challenges"
+                        items={s.evaluation.findings.filter((f) => f.stance === "challenges" && f.severity !== "info").map((f) => `${f.severity === "major" ? "Major" : "Minor"}: ${f.finding}`)}
+                      />
+                      <List title="What would show the call is wrong" items={s.evaluation.invalidation} />
+                    </div>
+                  )}
                 </div>
               </Disclosure>
             ))}
@@ -167,6 +182,9 @@ export default function TrackRecordPage() {
     </>
   );
 }
+
+const EVAL_LABEL = { stands: "Stands", weakened: "Weakened", contradicted: "Contradicted" } as const;
+const EVAL_TONE = { stands: "positive", weakened: "warning", contradicted: "negative" } as const;
 
 function Field({ k, v }: { k: string; v: string }) {
   return (

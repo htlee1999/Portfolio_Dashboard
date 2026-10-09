@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, FileDown, MinusCircle, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, CircleDot, FileDown, Info, MinusCircle, ShieldCheck, Sparkles, TriangleAlert, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -13,13 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Segmented, Switch } from "@/components/ui/controls";
 import { Banner, EmptyState, Spinner } from "@/components/ui/feedback";
+import { EvidenceGuide } from "@/components/ui/evidence";
 import { Disclosure } from "@/components/ui/overlay";
 import { Delta } from "@/components/ui/stat";
 import { useToast } from "@/components/ui/toast";
 import { api, download } from "@/lib/api";
 import { PERIODS, money, number, pct } from "@/lib/format";
 import { spring, stagger, staggerItem } from "@/lib/motion";
-import type { AIResult, AssessmentContext } from "@/lib/types";
+import type { AIResult, AssessmentContext, EntryPlan, Evaluation, EvaluationFinding } from "@/lib/types";
 
 export default function Page() {
   return (
@@ -36,13 +37,15 @@ function AssessmentView() {
   const [withSentiment, setWithSentiment] = useState(true);
   const [ctx, setCtx] = useState<AssessmentContext | null>(null);
   const [ai, setAi] = useState<AIResult | null>(null);
-  const [step, setStep] = useState<"idle" | "context" | "ai">("idle");
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [step, setStep] = useState<"idle" | "context" | "ai" | "evaluate">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function gather() {
     setStep("context");
     setError(null);
     setAi(null);
+    setEvaluation(null);
     try {
       setCtx(await api<AssessmentContext>(`/stocks/${encodeURIComponent(symbol)}/assessment`, { method: "POST", json: { period, include_sentiment: withSentiment } }));
     } catch (e) {
@@ -58,7 +61,23 @@ function AssessmentView() {
     setError(null);
     try {
       setAi(await api<AIResult>(`/stocks/${encodeURIComponent(ctx.symbol)}/assessment/ai`, { method: "POST", json: ctx }));
+      setEvaluation(null);
       toast("Assessment saved to your track record");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStep("idle");
+    }
+  }
+
+  async function evaluate() {
+    if (!ctx || !ai) return;
+    setStep("evaluate");
+    setError(null);
+    try {
+      const result = await api<Evaluation>(`/stocks/${encodeURIComponent(ctx.symbol)}/assessment/evaluate`, { method: "POST", json: { context: ctx, ai } });
+      setEvaluation(result);
+      if (result.saved) toast("Evaluation added to your track record");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -73,7 +92,7 @@ function AssessmentView() {
         title="AI Assessment"
         eyebrow="Research"
         subtitle="Technicals, fundamentals, sentiment and ML forecasts, weighed by Gemini"
-        actions={<SymbolPicker symbol={symbol} onChange={(s) => { setSymbol(s); setCtx(null); setAi(null); }} />}
+        actions={<SymbolPicker symbol={symbol} onChange={(s) => { setSymbol(s); setCtx(null); setAi(null); setEvaluation(null); }} />}
       />
 
       <div className="space-y-5">
@@ -118,7 +137,16 @@ function AssessmentView() {
             <div className="mt-5">
               <AnimatePresence mode="wait">
                 {ai ? (
-                  <AIPanel key="ai" ai={ai} ctx={ctx} onRegenerate={generate} regenerating={step === "ai"} />
+                  <AIPanel
+                    key="ai"
+                    ai={ai}
+                    ctx={ctx}
+                    onRegenerate={generate}
+                    regenerating={step === "ai"}
+                    evaluation={evaluation}
+                    onEvaluate={evaluate}
+                    evaluating={step === "evaluate"}
+                  />
                 ) : (
                   <motion.div key="cta" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} transition={spring.smooth}>
                     <Card className="relative overflow-hidden">
@@ -259,7 +287,23 @@ const REC = {
   SELL: { icon: ArrowDownCircle, cls: "text-negative", fill: "bg-negative-fill" },
 };
 
-function AIPanel({ ai, ctx, onRegenerate, regenerating }: { ai: AIResult; ctx: AssessmentContext; onRegenerate: () => void; regenerating: boolean }) {
+function AIPanel({
+  ai,
+  ctx,
+  onRegenerate,
+  regenerating,
+  evaluation,
+  onEvaluate,
+  evaluating,
+}: {
+  ai: AIResult;
+  ctx: AssessmentContext;
+  onRegenerate: () => void;
+  regenerating: boolean;
+  evaluation: Evaluation | null;
+  onEvaluate: () => void;
+  evaluating: boolean;
+}) {
   const toast = useToast();
   const [pdfBusy, setPdfBusy] = useState(false);
   const rec = REC[ai.recommendation];
@@ -270,7 +314,7 @@ function AIPanel({ ai, ctx, onRegenerate, regenerating }: { ai: AIResult; ctx: A
   async function pdf() {
     setPdfBusy(true);
     try {
-      await download("/reports/assessment.pdf", { method: "POST", json: { context: ctx, ai } });
+      await download("/reports/assessment.pdf", { method: "POST", json: { context: ctx, ai, evaluation } });
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
@@ -324,6 +368,33 @@ function AIPanel({ ai, ctx, onRegenerate, regenerating }: { ai: AIResult; ctx: A
             </div>
           </div>
         </Card>
+      </motion.div>
+
+      <motion.div variants={staggerItem}>
+        <AnimatePresence mode="wait">
+          {evaluation ? (
+            <EvaluationPanel key="evaluation" ev={evaluation} />
+          ) : (
+            <motion.div key="evaluate-cta" exit={{ opacity: 0, scale: 0.98 }} transition={spring.smooth}>
+              <Card>
+                <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex gap-3">
+                    <ShieldCheck className="mt-0.5 size-6 shrink-0 text-tint" aria-hidden />
+                    <div>
+                      <h3 className="text-headline">Get a second look</h3>
+                      <p className="mt-0.5 text-callout text-label-2">
+                        Checks this recommendation against the data with research-based skills: claims, the case against it, valuation, earnings timing, and an entry plan. It flags problems and can lower confidence, but doesn’t change the call.
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="tinted" loading={evaluating} icon={<ShieldCheck className="size-[18px]" />} onClick={onEvaluate} className="shrink-0">
+                    Evaluate
+                  </Button>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       <motion.div variants={staggerItem}>
@@ -387,5 +458,158 @@ function AIPanel({ ai, ctx, onRegenerate, regenerating }: { ai: AIResult; ctx: A
       </motion.div>
       <p className="text-center text-caption text-label-2">AI output can be wrong. This is not financial advice.</p>
     </motion.div>
+  );
+}
+
+const VERDICT = {
+  stands: { label: "Stands", tone: "positive", text: "The recommendation holds up against the data." },
+  weakened: { label: "Weakened", tone: "warning", text: "Parts of the argument don’t hold up." },
+  contradicted: { label: "Contradicted", tone: "negative", text: "The main argument rests on claims that are wrong or unreliable." },
+} as const;
+
+const APPROACH: Record<EntryPlan["approach"], string> = { all_at_once: "All at once", staged: "Staged", wait: "Wait" };
+
+function EvaluationPanel({ ev }: { ev: Evaluation }) {
+  const v = VERDICT[ev.verdict];
+  const titles = Object.fromEntries(ev.skills.map((s) => [s.name, s.title]));
+  const failed = ev.checks.filter((c) => !c.passed);
+  // Problems first, worst first; supporting findings after.
+  const rank = (f: EvaluationFinding) => (f.stance === "challenges" ? { major: 0, minor: 1, info: 2 }[f.severity] : f.stance === "neutral" ? 3 : 4);
+  const findings = [...ev.findings].sort((a, b) => rank(a) - rank(b));
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring.smooth} className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Second look"
+          subtitle={`${ev.skills.length} skills · ${ev.model}`}
+          action={<Badge tone={v.tone}>{v.label}</Badge>}
+        />
+        <div className="grid gap-5 md:grid-cols-[auto_1fr] md:items-start">
+          <div className="flex items-baseline gap-2" aria-label={`Confidence ${ev.original_confidence} out of 10, adjusted to ${ev.confidence_adjusted}`}>
+            <span className="text-caption text-label-2">Confidence</span>
+            <span className="text-headline tabular">
+              {ev.confidence_adjusted < ev.original_confidence ? (
+                <>
+                  <span className="text-label-3 line-through">{ev.original_confidence}</span> {ev.confidence_adjusted}/10
+                </>
+              ) : (
+                `${ev.confidence_adjusted}/10`
+              )}
+            </span>
+          </div>
+          <div className="space-y-1">
+            <p className="text-callout font-medium">{v.text}</p>
+            <p className="text-callout text-label-2">{ev.summary}</p>
+          </div>
+        </div>
+
+        <ul className="mt-5 space-y-3 border-t-[0.5px] border-separator pt-4">
+          {findings.map((f, i) => (
+            <FindingRow key={i} f={f} skill={titles[f.skill] ?? f.skill} />
+          ))}
+        </ul>
+      </Card>
+
+      <div className={`grid gap-5 ${ev.entry_plan ? "md:grid-cols-2" : ""}`}>
+        <Card>
+          <CardHeader title="The case against" />
+          <p className="text-callout">{ev.counter_case}</p>
+          {ev.invalidation.length > 0 && (
+            <>
+              <h4 className="mt-4 mb-2 text-footnote font-semibold text-label-2">What would show the call is wrong</h4>
+              <ul className="space-y-2">
+                {ev.invalidation.map((x) => (
+                  <li key={x} className="flex gap-2.5 text-callout">
+                    <CircleDot className="mt-0.5 size-4 shrink-0 text-label-2" aria-hidden />
+                    {x}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Card>
+        {ev.entry_plan && (
+          <Card>
+            <CardHeader title="Entry plan" action={<Badge tone="tint">{APPROACH[ev.entry_plan.approach]}</Badge>} />
+            <dl className="space-y-3 text-callout">
+              <div>
+                <dt className="text-footnote font-semibold text-label-2">How</dt>
+                <dd>{ev.entry_plan.detail}</dd>
+              </div>
+              <div>
+                <dt className="text-footnote font-semibold text-label-2">Size</dt>
+                <dd>{ev.entry_plan.size}</dd>
+              </div>
+              <div>
+                <dt className="text-footnote font-semibold text-label-2">Review</dt>
+                <dd>{ev.entry_plan.review_when}</dd>
+              </div>
+            </dl>
+            <p className="mt-4 text-caption text-label-2">Plans the size and pace of buying, not the price: timing the market hasn’t worked reliably.</p>
+          </Card>
+        )}
+      </div>
+
+      <Card className="!py-2">
+        <Disclosure title="Automatic checks" subtitle={failed.length ? `${failed.length} of ${ev.checks.length} flagged` : `${ev.checks.length} passed`}>
+          <p className="mb-3 text-footnote text-label-2">
+            Rule checks run in code before Gemini reviews. They read wording with simple patterns, so Gemini confirms or dismisses each flag in the findings above.
+          </p>
+          {ev.checks.length ? (
+            <ul className="space-y-2 pb-2">
+              {ev.checks.map((c, i) => (
+                <li key={i} className="flex gap-2.5 text-footnote">
+                  {c.passed ? <CheckCircle2 className="mt-px size-4 shrink-0 text-positive" aria-label="Passed" /> : <TriangleAlert className="mt-px size-4 shrink-0 text-warning" aria-label="Flagged" />}
+                  <span>
+                    <span className="font-semibold">{c.check}</span> <span className="text-label-2">· {titles[c.skill] ?? c.skill}</span>
+                    <br />
+                    <span className="text-label-2">{c.detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="pb-2 text-footnote text-label-2">No rule checks applied to this recommendation.</p>
+          )}
+        </Disclosure>
+        <Disclosure title="Skills & evidence" subtitle="Why each check is used">
+          <div className="pb-3">
+            <EvidenceGuide
+              intro="Each skill is a set of instructions with facts computed in code, so Gemini judges from given numbers rather than doing arithmetic. Skills are chosen by rules: claims and the counter-case always run; the others when they apply. Ratings describe how well research supports each check."
+              outro="Language models reviewing their own work tend to agree with it, so the review is tied to computed facts, may only lower confidence, and can’t change the recommendation."
+              sections={[{
+                items: ev.skills.map((s) => ({
+                  name: s.title,
+                  evidence: s.evidence,
+                  read: `${s.description} Runs when: ${s.applies_when.charAt(0).toLowerCase()}${s.applies_when.slice(1)}`,
+                  verdict: s.rationale,
+                  sources: s.sources,
+                })),
+              }]}
+            />
+          </div>
+        </Disclosure>
+      </Card>
+    </motion.div>
+  );
+}
+
+function FindingRow({ f, skill }: { f: EvaluationFinding; skill: string }) {
+  const icon =
+    f.stance === "supports" ? <CheckCircle2 className="mt-0.5 size-[18px] shrink-0 text-positive" aria-label="Supports" />
+    : f.stance === "neutral" ? <Info className="mt-0.5 size-[18px] shrink-0 text-label-2" aria-label="Note" />
+    : f.severity === "major" ? <XCircle className="mt-0.5 size-[18px] shrink-0 text-negative" aria-label="Major challenge" />
+    : <TriangleAlert className="mt-0.5 size-[18px] shrink-0 text-warning" aria-label="Challenge" />;
+  return (
+    <li className="flex gap-2.5 text-callout">
+      {icon}
+      <div className="min-w-0">
+        <div className="mb-0.5 flex flex-wrap items-center gap-1.5 text-caption text-label-2">
+          {skill}
+          {f.stance === "challenges" && f.severity !== "info" && <Badge tone={f.severity === "major" ? "negative" : "warning"} className="!h-5 !px-2">{f.severity}</Badge>}
+        </div>
+        {f.finding}
+      </div>
+    </li>
   );
 }

@@ -152,15 +152,17 @@ The **Signal profile** radar turns these into 0–100 scores. A missing input sc
 
 | Axis | Formula |
 |---|---|
-| Valuation | 100 − (P/E − 15) × 2 |
-| Growth | (revenue growth % + 20) × 2.5 |
-| Profitability | ROE % × 4 |
-| Momentum | 100 − \|RSI − 50\| × 2 (rewards a non-extreme RSI) |
-| Balance sheet | 100 − (Debt/Equity ×) × 40 |
+| Valuation | Mean of: earnings yield × 1,000 (P/E 10 → 100, P/E 20 → 50; loss-makers score 0), 100 − (EV/EBITDA − 6) × 4, and the average of 50 + (% cheaper than its own fiscal-year median) for each valuation ratio |
+| Growth | (last fiscal year's revenue growth % + 20) × 2.5 |
+| Profitability | Banks and insurers: ROE % × 5. Others: mean of ROA % × 5, operating margin % × 2.5 and gross profit / assets % × 2.5 |
+| Momentum | Mean of RSI, 50 + 12-1 month return % (+50% → 100), and the share of trend confirmations (price above SMA 20 / 50 / 200, MACD above signal) |
+| Balance sheet | Mean of 100 − D/E × 40, (current ratio − 0.5) × 100, Altman Z (distress line 25, safe line 75), interest coverage × 10, 100 − net debt/EBITDA × 25 |
+| Quality | Piotroski F-score ÷ tests available × 100 |
+| Earnings | Mean of the share of the last quarters that beat EPS estimates, and 50 + the 90-day change in this year's EPS estimate % × 5 |
 | Sentiment | 50 unless the net tone's 95% interval excludes zero; then 50 + net tone × 50 |
 | Forecast | 50 unless a model significantly beats no change; then 50 + (its predicted return ÷ GARCH daily volatility) × 50 |
 
-These are rough heuristics for visual comparison. Gemini doesn't see them.
+These are rough rules of thumb for visual comparison, without sector data, so a score can't say "cheap for its industry". The one-shot prompt doesn't include them; the evaluation uses them to find signals that oppose the call.
 
 **Step 2: Generate Assessment** sends Gemini (`gemini-3.5-flash-lite`) a compact prompt:
 
@@ -177,7 +179,31 @@ Each assessment is:
 
 - appended to `data/recommendation_history_<user>.json`, where it feeds the Track Record
 - logged to `data/gemini_usage.json`, with real token counts from the API response
-- exportable as a PDF (summary table, position advice, reasoning, strengths and risks)
+- exportable as a PDF (summary table, position advice, reasoning, strengths and risks, and the evaluation if one was run)
+
+**Step 3: Evaluate** (optional, its own button) gives the recommendation a second look. `backend/evaluation.py`, skills in `backend/skills/`.
+
+Models asked to review their own answer don't reliably improve it, and tend to favour it ([Huang et al., 2024](https://arxiv.org/abs/2310.01798); [Panickssery et al., 2024](https://arxiv.org/abs/2404.13076)); checking specific claims against given facts does reduce errors ([Dhuliawala et al., 2023](https://arxiv.org/abs/2309.11495)). So the evaluation is tied to facts computed in code:
+
+1. **Rules pick the skills.** Each skill is a `SKILL.md` file (the open Agent Skills format) with instructions, the evidence behind it and its sources.
+
+   | Skill | Runs when | What it checks | Evidence |
+   |---|---|---|---|
+   | Claim check | always | numbers and signal readings against the data; reliance on forecasts without skill, or on missing data | mixed |
+   | Counter-case | always | the strongest case against the call from opposing radar axes; conditions that would prove it wrong | mixed |
+   | Valuation sanity | a price target, or BUY | target vs the analysts' range; the P/E the target implies vs the company's own history | strong |
+   | Earnings window | the next report falls within the horizon | whether the report is acknowledged; beat record and estimate revisions vs the call | strong |
+   | Technical evidence | a technical indicator is cited | whether a signal that fired recently and still holds has worked on this stock (5-year back-test) | mixed |
+   | Entry plan | BUY, or advice to add | all at once, staged or wait; size from volatility; when to review. No price predictions | mixed |
+   | Position review | you hold the stock | anchoring on the purchase price; concentration (above 20% of the portfolio, a rule of thumb) | strong |
+
+2. **Code computes each skill's facts** (implied P/E, days to the report, a 20-day 95% range from GARCH volatility, portfolio share) and runs **rule screens** on the wording, such as "calls the stock oversold at RSI 61" or "target above every analyst's". Screens quote the sentence they matched.
+3. **One Gemini call** reviews the recommendation with the selected skills, confirming or dismissing each failed screen. It returns a verdict (*stands*, *weakened* or *contradicted*), an adjusted confidence, findings by skill, the case against, conditions that would show the call is wrong, and an entry plan when that skill ran.
+4. **Code enforces the rules:** confidence can only go down, "stands" can't have a major challenge, and findings must come from a selected skill. The recommendation itself never changes.
+
+The evaluation is saved with the recommendation in your history (under `evaluation`) and logged as `assessment_evaluation`. It costs one Gemini call of about 5,000–6,500 tokens and takes about 3 seconds, plus a moment for the 5-year back-test.
+
+**Testing.** `tests/test_evaluation.py` checks skill selection, the screens and the rules on saved AAPL and RIVN assessments (`PYTHONPATH=. pytest tests`). In a live test in October 2026, errors were planted in real one-shot results for AAPL, KO, DBS and RIVN: a wrong RSI reading, reliance on a forecast without skill, the wrong side of the 200-day average, and a target 20% above the highest analyst's. The evaluation flagged 15 of 16 at first (the miss was caught 3 times out of 3 after the screens began quoting the sentence), and raised no challenges about claims on any of the 4 unaltered results. That measures error-catching, not whether the calls make money: the track record will show that over time.
 
 AI output can be wrong and is not financial advice.
 

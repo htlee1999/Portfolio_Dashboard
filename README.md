@@ -75,6 +75,8 @@ backend/                FastAPI server
   volatility.py         GARCH(1,1) range for the next close
   sentiment.py          SERPapi news, filtering, financial-news model scoring
   assessment.py         signal aggregation and Gemini structured assessment
+  evaluation.py         second-look review of an assessment with research-based skills
+  skills/               the evaluation's skills (SKILL.md files)
   reports.py            PDF export
   track_record.py       hindsight scoring of past recommendations
   usage.py              Gemini usage log and summaries
@@ -86,6 +88,7 @@ web/                    Next.js web app
   src/components/       UI primitives, charts and app shell
   src/lib/              API client, formatting, motion presets, theme, types
   src/proxy.ts          redirects signed-out visitors to /login
+tests/                  pytest suite (PYTHONPATH=. pytest tests)
 data/                   your data (git-ignored)
 documentations/         guides
 dev.sh                  starts both servers

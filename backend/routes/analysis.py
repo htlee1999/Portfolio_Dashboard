@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from config import ML_AVAILABLE, PERIOD_LIST, is_gemini_api_configured, normalize_symbol
 
-from .. import assessment, fundamentals, predictive, reports, sentiment, technical, track_record
+from .. import assessment, evaluation, fundamentals, predictive, reports, sentiment, technical, track_record
 from ..auth import current_user
 from ..storage import file_stamp
 from ..utils import clean
@@ -157,15 +157,33 @@ def assessment_ai(symbol: str, ctx: dict[str, Any] = Body(...), user: dict = Dep
         raise HTTPException(400, f"Malformed assessment context: {e}")
 
 
+class EvaluateIn(BaseModel):
+    context: dict[str, Any]
+    ai: dict[str, Any]
+
+
+@router.post("/stocks/{symbol}/assessment/evaluate")
+def assessment_evaluate(symbol: str, body: EvaluateIn, user: dict = Depends(current_user)):
+    if body.context.get("symbol") != _symbol(symbol):
+        raise HTTPException(400, "Context does not match symbol")
+    try:
+        return clean(evaluation.evaluate(user["username"], body.context, body.ai))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(400, f"Malformed assessment: {e}")
+
+
 class ReportIn(BaseModel):
     context: dict[str, Any]
     ai: dict[str, Any]
+    evaluation: dict[str, Any] | None = None
 
 
 @router.post("/reports/assessment.pdf")
 def assessment_report(body: ReportIn, user: dict = Depends(current_user)):
     try:
-        pdf = reports.assessment_pdf(body.context, body.ai)
+        pdf = reports.assessment_pdf(body.context, body.ai, body.evaluation)
     except (KeyError, TypeError) as e:
         raise HTTPException(400, f"Malformed report payload: {e}")
     name = f"ai_report_{body.context.get('symbol', 'stock')}_{file_stamp()}.pdf"

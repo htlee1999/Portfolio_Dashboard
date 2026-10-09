@@ -348,6 +348,47 @@ export type AIResult = {
   generated_at: string;
 };
 
+export type EvaluationFinding = {
+  skill: string;
+  stance: "supports" | "challenges" | "neutral";
+  severity: "info" | "minor" | "major";
+  finding: string;
+};
+
+export type EntryPlan = { approach: "all_at_once" | "staged" | "wait"; detail: string; size: string; review_when: string };
+
+export type EvaluationSkill = {
+  name: string;
+  title: string;
+  description: string;
+  applies_when: string;
+  evidence: "strong" | "mixed" | "weak";
+  rationale: string;
+  sources: { cite: string; url: string }[];
+};
+
+export type Evaluation = {
+  verdict: "stands" | "weakened" | "contradicted";
+  confidence_adjusted: number;
+  original_confidence: number;
+  recommendation: AIResult["recommendation"];
+  summary: string;
+  findings: EvaluationFinding[];
+  counter_case: string;
+  invalidation: string[];
+  entry_plan: EntryPlan | null;
+  skills: EvaluationSkill[];
+  checks: { skill: string; check: string; passed: boolean; detail: string }[];
+  model: string;
+  generated_at: string;
+  saved: boolean;
+};
+
+/** What the track record keeps of an evaluation. */
+export type SavedEvaluation = Pick<Evaluation, "verdict" | "confidence_adjusted" | "summary" | "findings" | "counter_case" | "invalidation" | "entry_plan" | "generated_at"> & {
+  skills: string[];
+};
+
 export type Signal = {
   id: number;
   timestamp: string;
@@ -366,6 +407,7 @@ export type Signal = {
   steps: { title: string; content: string }[];
   position_advice: string | null;
   portfolio_context: { avg_purchase_price: number; total_quantity: number; unrealized_pct: number } | null;
+  evaluation: SavedEvaluation | null;
 };
 
 export type Usage = {
