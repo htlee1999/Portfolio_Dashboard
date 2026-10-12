@@ -6,9 +6,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 
+import { useScheduled } from "@/lib/scheduled";
 import { useSession } from "@/lib/session";
 import { spring } from "@/lib/motion";
 import { cn } from "../ui/cn";
+import { Spinner } from "../ui/feedback";
 import { NAV, RESEARCH, SETTINGS, TABS, isActive, type NavItem } from "./nav";
 
 /* Compact title shown in the toolbar once the page's large title scrolls away. */
@@ -39,6 +41,28 @@ function SidebarLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
+/** Shown on every page while a scheduled run is going; links to its card on the Track Record. */
+function RunIndicator({ compact = false }: { compact?: boolean }) {
+  const { data } = useScheduled();
+  const s = data?.status;
+  if (s?.state !== "running") return null;
+  const label = `Scheduled run ${s.done}/${s.total}`;
+  return (
+    <Link
+      href="/track-record#scheduled"
+      title={`${label}${s.current ? `, assessing ${s.current}` : ""}`}
+      className={cn(
+        "flex items-center gap-2 rounded-[9px] text-footnote text-label-2 hover:bg-fill-2 hover:text-label",
+        compact ? "h-8 rounded-full bg-fill px-3" : "h-9 px-2.5",
+      )}
+    >
+      <Spinner className="size-4" />
+      <span className="tabular">{compact ? `${s.done}/${s.total}` : label}</span>
+      {!compact && s.current && <span className="ml-auto font-semibold text-label">{s.current}</span>}
+    </Link>
+  );
+}
+
 function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useSession();
@@ -63,6 +87,7 @@ function Sidebar() {
         ))}
       </nav>
       <div className="hairline-t space-y-0.5 px-3 py-3">
+        <RunIndicator />
         <SidebarLink item={SETTINGS} active={isActive(pathname, SETTINGS.href)} />
         <div className="flex items-center gap-2.5 px-2.5 pt-2">
           <span className="flex size-8 items-center justify-center rounded-full bg-fill text-footnote font-semibold uppercase text-label-2">
@@ -150,6 +175,9 @@ function Toolbar() {
           </motion.span>
         )}
       </AnimatePresence>
+      <div className="absolute right-4 lg:hidden">
+        <RunIndicator compact />
+      </div>
     </div>
   );
 }

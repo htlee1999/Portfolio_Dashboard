@@ -26,6 +26,11 @@ def yahoo_available() -> bool:
     return time.time() >= _yahoo_down_until
 
 
+def yahoo_wait() -> float:
+    """Seconds until Yahoo is tried again after a failure (0 when it's available)."""
+    return max(0.0, _yahoo_down_until - time.time())
+
+
 def _trip_yahoo() -> None:
     global _yahoo_down_until
     _yahoo_down_until = time.time() + _YAHOO_COOLDOWN_SECONDS

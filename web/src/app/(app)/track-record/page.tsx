@@ -14,6 +14,7 @@ import { Disclosure } from "@/components/ui/overlay";
 import { Delta, Stat, StatGrid } from "@/components/ui/stat";
 import { useApi } from "@/lib/api";
 import { dateTime, money, pct, shortDate } from "@/lib/format";
+import { ScheduledCard } from "./scheduled-card";
 import type { Calibration, ModelComparison, RuleComparison, Signal, TrackRecord } from "@/lib/types";
 
 const REC_TONE = { BUY: "positive", SELL: "negative", HOLD: "tint" } as const;
@@ -87,7 +88,7 @@ function stats(signals: Signal[]) {
 
 export default function TrackRecordPage() {
   const [horizon, setHorizon] = useState("21");
-  const { data, error, isLoading, isValidating } = useApi<TrackRecord>(`/track-record?horizon=${horizon}`);
+  const { data, error, isLoading, isValidating, mutate } = useApi<TrackRecord>(`/track-record?horizon=${horizon}`);
   const [rec, setRec] = useState<"ALL" | "BUY" | "SELL" | "HOLD">("ALL");
   const [symbol, setSymbol] = useState("ALL");
   const [version, setVersion] = useState("ALL");
@@ -265,6 +266,8 @@ export default function TrackRecordPage() {
               <p className="text-callout text-label-2">No BUY signals with price history in this filter.</p>
             )}
           </Card>
+
+          <ScheduledCard onFinished={() => mutate()} />
 
           <RulesCard r={data.rules} horizon={HORIZON_TEXT[horizon]} />
 

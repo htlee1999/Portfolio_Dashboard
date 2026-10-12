@@ -500,3 +500,39 @@ export type Usage = {
   rate: { minute: number; hour: number; day_tokens: number; limits: { minute: number; hour: number; day_tokens: number } };
   recent: { timestamp: string; model: string; operation: string; symbol: string | null; total_tokens: number; cost_usd: number; success: boolean; error_message: string | null }[];
 };
+
+/** Progress of the current or last scheduled run. */
+export type RunStatus = {
+  user: string;
+  run: string;
+  started: string;
+  providers: ("local" | "gemini")[];
+  total: number;
+  done: number;
+  current: string | null;
+  ok: number;
+  failed: number;
+  finished: string | null;
+  state: "running" | "finished" | "interrupted";
+};
+
+export type ScheduledRuns = {
+  installed: boolean;
+  next_run: string;
+  /** Whether the next run is in the last week of the month, so Gemini runs too. */
+  next_compare: boolean;
+  model: string;
+  /** Why the local model can't run right now, or null when it can. */
+  local_problem: string | null;
+  status: RunStatus | null;
+  runs: {
+    run: string;
+    started: string;
+    finished: string | null;
+    providers: ("local" | "gemini")[];
+    skipped: string[];
+    ok: number;
+    failed: number;
+    errors: { symbol: string; provider: string | null; error: string }[];
+  }[];
+};

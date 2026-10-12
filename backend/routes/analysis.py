@@ -1,15 +1,19 @@
+import os
 import re
+import subprocess
+import sys
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from config import ML_AVAILABLE, PERIOD_LIST, is_gemini_api_configured, normalize_symbol
+from config import ML_AVAILABLE, PERIOD_LIST, get_ollama_model, is_gemini_api_configured, normalize_symbol
 
-from .. import assessment, evaluation, fundamentals, predictive, reports, sentiment, technical, track_record
-from ..auth import current_user
-from ..storage import file_stamp
+from .. import assessment, batch, evaluation, fundamentals, predictive, reports, sentiment, technical, track_record
+from ..auth import admin_user, current_user
+from ..storage import data_path, file_stamp, load_json
 from ..utils import clean
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -188,6 +192,39 @@ def assessment_report(body: ReportIn, user: dict = Depends(current_user)):
         raise HTTPException(400, f"Malformed report payload: {e}")
     name = f"ai_report_{body.context.get('symbol', 'stock')}_{file_stamp()}.pdf"
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/scheduled")
+def get_scheduled(user: dict = Depends(current_user)):
+    """The scheduled runs: whether one is running and how far it's got, the next run, and recent runs."""
+    now = datetime.now()
+    runs = [r for r in load_json(data_path(batch.RUNS_LOG), []) if r.get("user", "admin") == user["username"]]
+    nxt = batch.next_run(now)
+    return clean({
+        "installed": os.path.exists(batch.PLIST),
+        "next_run": nxt.isoformat(),
+        "next_compare": batch.is_last_week(nxt.date()),
+        "model": get_ollama_model(),
+        "local_problem": batch.local_ready(),
+        "status": batch.status(),
+        "runs": [{k: r.get(k) for k in ("run", "started", "finished", "providers", "skipped")}
+                 | {"ok": len(r["ok"]), "failed": len(r["failed"]), "errors": r["failed"][:5]} for r in runs[-10:][::-1]],
+    })
+
+
+@router.post("/scheduled/run")
+def start_scheduled_run(user: dict = Depends(admin_user)):
+    """Start a run now, as the schedule would (comparison in the last week of the month)."""
+    s = batch.status()
+    if s and s["state"] == "running":
+        raise HTTPException(409, "A run is already in progress")
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    os.makedirs(data_path("logs"), exist_ok=True)
+    with open(data_path("logs", "scheduled.log"), "a") as log:
+        # Its own session, so it outlives an API reload.
+        subprocess.Popen([sys.executable, "-m", "backend.batch", "--user", user["username"]], cwd=root,
+                         env={**os.environ, "PYTHONPATH": root}, stdout=log, stderr=log, start_new_session=True)
+    return {"started": True}
 
 
 @router.get("/track-record")

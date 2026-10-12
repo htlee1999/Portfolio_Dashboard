@@ -8,6 +8,7 @@ same context, so the Track Record can compare the two models on identical inputs
 """
 
 import argparse
+import os
 import time
 from datetime import date, datetime, timedelta
 
@@ -15,7 +16,7 @@ import requests
 
 from config import get_ollama_model, get_ollama_url, is_gemini_api_configured
 
-from . import assessment
+from . import assessment, market
 from .storage import data_path, load_json, save_json
 
 # A fixed spread across sectors, the same every run, so the record isn't tilted towards stocks you
@@ -30,10 +31,55 @@ UNIVERSE = [
     "HD", "DIS", "NFLX", "TSLA",  # consumer discretionary and media
 ]
 
+# Data fetches per stock. After a Yahoo failure every fetch is skipped for a cooldown, so a retry
+# waits that out first; without it one rate-limit fails the next several stocks too.
+FETCH_ATTEMPTS = 3
+
 # Gemini's free tier allows 15 requests a minute; stay under it.
 GEMINI_RPM = 12
 
 RUNS_LOG = "scheduled_runs.json"
+STATUS = "scheduled_status.json"
+
+# When launchd starts a run (weekday, Monday = 0; hour). Keep in step with schedule.sh.
+SCHEDULE = [(0, 9), (4, 9)]
+PLIST = os.path.expanduser("~/Library/LaunchAgents/com.portfolio-dashboard.assessments.plist")
+
+
+def next_run(now: datetime) -> datetime:
+    day = now.replace(minute=0, second=0, microsecond=0)
+    for offset in range(8):
+        d = day + timedelta(days=offset)
+        for weekday, hour in SCHEDULE:
+            at = d.replace(hour=hour)
+            if d.weekday() == weekday and at > now:
+                return at
+    raise AssertionError("SCHEDULE is empty")
+
+
+def _alive(pid: int | None) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (TypeError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+
+
+def status() -> dict:
+    """The current or last run's progress; ``state`` is running, finished or interrupted (the process
+    died before finishing)."""
+    s = load_json(data_path(STATUS), None)
+    if s and not s.get("finished"):
+        s["state"] = "running" if _alive(s.get("pid")) else "interrupted"
+    elif s:
+        s["state"] = "finished"
+    return s
+
+
+def _save_status(s: dict) -> None:
+    save_json(data_path(STATUS), s)
 
 
 def is_last_week(day: date) -> bool:
@@ -58,6 +104,19 @@ def local_ready() -> str | None:
     return None
 
 
+def _context(username: str, symbol: str) -> dict:
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            # No position and no news: the call rests on the same kinds of data every run.
+            return assessment.build_context(username, symbol, "1y", include_sentiment=False, include_position=False)
+        except LookupError:
+            if attempt == FETCH_ATTEMPTS - 1:
+                raise
+            print(f"{symbol}: no data, retrying after Yahoo's cooldown", flush=True)
+            time.sleep(market.yahoo_wait() + 30)
+    raise AssertionError("unreachable")
+
+
 def run(username: str, mode: str = "auto", symbols: list[str] | None = None) -> dict:
     started = datetime.now()
     providers = providers_for(mode, started.date())
@@ -70,15 +129,21 @@ def run(username: str, mode: str = "auto", symbols: list[str] | None = None) -> 
         skipped.append("gemini: GEMINI_API_KEY is not configured")
 
     run_id = started.strftime("%Y-%m-%dT%H:%M")
-    results = {"run": run_id, "started": started.isoformat(), "providers": providers, "skipped": skipped,
+    results = {"user": username, "run": run_id, "started": started.isoformat(), "providers": providers, "skipped": skipped,
                "ok": [], "failed": []}
+    todo = (symbols or UNIVERSE) if providers else []
+    progress = {"user": username, "run": run_id, "pid": os.getpid(), "started": started.isoformat(), "providers": providers,
+                "total": len(todo), "done": 0, "current": None, "ok": 0, "failed": 0, "finished": None}
+    _save_status(progress)
     last_gemini = 0.0
-    for symbol in (symbols or UNIVERSE) if providers else []:
+    for symbol in todo:
+        progress["current"] = symbol
+        _save_status(progress)
         try:
-            # No position and no news: the call rests on the same kinds of data every run.
-            ctx = assessment.build_context(username, symbol, "1y", include_sentiment=False, include_position=False)
+            ctx = _context(username, symbol)
         except Exception as e:
             results["failed"].append({"symbol": symbol, "provider": None, "error": str(e)})
+            progress.update(done=progress["done"] + 1, failed=len(results["failed"]))
             continue
         # Both models get the identical context, so a comparison week differs only in the model.
         for provider in providers:
@@ -90,10 +155,12 @@ def run(username: str, mode: str = "auto", symbols: list[str] | None = None) -> 
                 results["ok"].append({"symbol": symbol, "provider": provider, "recommendation": out["recommendation"]})
             except Exception as e:
                 results["failed"].append({"symbol": symbol, "provider": provider, "error": str(e)})
+        progress.update(done=progress["done"] + 1, ok=len(results["ok"]), failed=len(results["failed"]))
         print(f"{symbol}: " + ", ".join(f"{r['provider']} {r.get('recommendation') or 'failed'}"
                                        for r in results["ok"] + results["failed"] if r["symbol"] == symbol), flush=True)
 
     results["finished"] = datetime.now().isoformat()
+    _save_status({**progress, "current": None, "finished": results["finished"]})
     path = data_path(RUNS_LOG)
     save_json(path, (load_json(path, []) + [results])[-200:])
     return results

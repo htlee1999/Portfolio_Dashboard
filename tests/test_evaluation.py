@@ -402,3 +402,25 @@ def test_batch_compares_models_only_in_the_last_week():
     assert batch.providers_for("auto", date(2026, 10, 26)) == ["local", "gemini"]
     assert batch.providers_for("auto", date(2026, 2, 23)) == ["local", "gemini"]  # 28-day month
     assert batch.providers_for("gemini", date(2026, 10, 5)) == ["gemini"]
+
+
+def test_next_scheduled_run_is_the_next_monday_or_friday_at_nine():
+    from datetime import datetime
+    from backend import batch
+    assert batch.next_run(datetime(2026, 10, 12, 8, 59)) == datetime(2026, 10, 12, 9)   # Monday morning
+    assert batch.next_run(datetime(2026, 10, 12, 9, 0)) == datetime(2026, 10, 16, 9)    # Monday, just started
+    assert batch.next_run(datetime(2026, 10, 17, 12, 0)) == datetime(2026, 10, 19, 9)   # Saturday
+
+
+def test_batch_retries_a_failed_fetch_after_the_cooldown(monkeypatch):
+    from backend import batch
+    calls = []
+
+    def build(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 2:
+            raise LookupError("rate-limited")
+        return {"symbol": "AAPL"}
+    monkeypatch.setattr(batch.assessment, "build_context", build)
+    monkeypatch.setattr(batch.time, "sleep", lambda s: None)
+    assert batch._context("u", "AAPL") == {"symbol": "AAPL"} and len(calls) == 2
