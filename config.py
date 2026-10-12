@@ -43,6 +43,22 @@ def is_serp_api_configured() -> bool:
     return bool(key and key != "your_serpapi_key_here")
 
 
+def get_ollama_url() -> str:
+    """Local Ollama server, used for scheduled assessments."""
+    return os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+
+
+def get_ollama_model() -> str:
+    """Local model for scheduled assessments."""
+    return os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+
+
+def ollama_think() -> bool:
+    """Let the local model think before answering. Off by default: on an M2 it took 6-7 minutes a
+    stock with thinking and about 1 minute without."""
+    return os.getenv("OLLAMA_THINK", "0") == "1"
+
+
 def is_gemini_api_configured() -> bool:
     """Check if Gemini API key is properly configured."""
     key = get_gemini_api_key()

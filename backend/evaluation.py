@@ -216,11 +216,23 @@ def _counter_case(ctx: dict, ai: dict, text: str, _: dict) -> tuple[dict, list]:
         },
     }
     # Only strong opposition is screened, and not for HOLD, where both directions argue against it.
-    checks = [
-        _check("counter-case", f"{axis} addressed", False, f"{axis} scores {score:.0f}/100, against the call, and isn't discussed.")
-        for axis, score in opposing.items()
-        if rec != "HOLD" and (score < 30 if rec == "BUY" else score > 70) and not re.search(_AXIS_WORDS[axis], text)
-    ]
+    checks = []
+    for axis, score in opposing.items():
+        if rec == "HOLD" or not (score < 30 if rec == "BUY" else score > 70):
+            continue
+        said = [x for x in _sentences(text) if re.search(_AXIS_WORDS[axis], x)]
+        # A mention alone can be a dismissal ("despite a stretched valuation"); an answer cites figures.
+        # Gemini dismisses false alarms, so this errs towards flagging.
+        answered = next((x for x in said if re.search(r"\d", x)), None)
+        if answered:
+            checks.append(_check("counter-case", f"{axis} addressed", True,
+                                 f"{axis} scores {score:.0f}/100, against the call; {_quote(answered.strip())} answers it with figures."))
+        elif said:
+            checks.append(_check("counter-case", f"{axis} addressed", False,
+                                 f"{axis} scores {score:.0f}/100, against the call. {_quote(said[0].strip())} mentions it without "
+                                 "figures: check whether it is answered or only dismissed."))
+        else:
+            checks.append(_check("counter-case", f"{axis} addressed", False, f"{axis} scores {score:.0f}/100, against the call, and isn't discussed."))
     return facts, checks
 
 
@@ -291,10 +303,13 @@ def _earnings_window(ctx: dict, ai: dict, text: str, _: dict) -> tuple[dict, lis
     }
     checks = []
     if days <= 30:
-        mentioned = bool(re.search(r"earnings|report|results|\beps\b|quarter", text))
+        # "Consistent earnings beats" is about past reports: the sentence must look ahead to this one.
+        month = date.fromisoformat(e["next_date"][:10]).strftime("%B").lower()
+        ahead = rf"upcoming|\bnext\b|ahead|\bdue\b|scheduled|coming|pending|before (the|its)|\bin \d+ days|{month}|{month[:3]}\b|{e['next_date'][:10]}"
+        mentioned = any(re.search(r"earnings|report|results|\beps\b", x) and re.search(ahead, x) for x in _sentences(text))
         checks.append(_check("earnings-window", "Report acknowledged", mentioned,
                              f"The next report is in {days} days ({e['next_date']}); "
-                             + ("the recommendation mentions it." if mentioned else "the recommendation doesn't mention earnings.")))
+                             + ("the recommendation mentions it." if mentioned else "the recommendation doesn't mention the upcoming report.")))
     change = year and year["change_90d"]
     if change is not None and ((ai["recommendation"] == "BUY" and change < -2) or (ai["recommendation"] == "SELL" and change > 2)):
         checks.append(_check("earnings-window", "Revisions vs call", False,
@@ -421,6 +436,20 @@ FACTS: dict[str, Callable] = {
     "position-review": _position_review,
 }
 
+# What each skill's rule screens look at. The prompt lists this so the review knows that a claim
+# no screen covers is unchecked, rather than reading a quiet screen as a pass.
+SCREENED: dict[str, str] = {
+    "claim-check": "RSI called overbought or oversold, MACD direction, which side of the 50- and 200-day averages the price is on, "
+                   "reliance on forecasts without skill, news discussed when it wasn't included, news tone without a clear tilt",
+    "counter-case": "whether each strongly opposing radar axis is mentioned, and with figures",
+    "valuation-sanity": "target against the analysts' high, the P/E the target implies against history, "
+                        "cheap or expensive wording against the valuation score",
+    "earnings-window": "whether a report within 30 days is mentioned, EPS estimate revisions against the call",
+    "technical-evidence": "cited signals that fired in the last 30 days and still hold",
+    "entry-plan": "",
+    "position-review": "wording about the purchase price, adding above 20% of the portfolio, position advice against the call",
+}
+
 
 def _portfolio_extra(username: str, ctx: dict) -> dict:
     """The stock's share of the portfolio, for the sizing and position skills."""
@@ -495,6 +524,8 @@ def _prompt(ctx: dict, ai: dict, chosen: list[dict]) -> str:
         "- Automatic screens come from simple text rules and can misread phrasing. For each failed screen, read the wording "
         "it quotes or describes: confirm it as a challenge only if the recommendation really makes that claim; otherwise "
         "dismiss it in a 'neutral' info finding.",
+        "- The screens cover only the few claim types listed under each skill. A claim no screen covers is unchecked, not "
+        "correct: check every claim the skill asks about against the facts yourself, numbers included.",
         "- Every finding names the skill it comes from. Be concise and specific.",
         "",
         "RECOMMENDATION UNDER REVIEW",
@@ -502,7 +533,8 @@ def _prompt(ctx: dict, ai: dict, chosen: list[dict]) -> str:
     ]
     for i, item in enumerate(chosen, 1):
         skill = library[item["name"]]
-        lines += ["", f"=== SKILL {i}: {item['name']} ===", skill["body"], "", "Facts:", json.dumps(item["facts"], ensure_ascii=False)]
+        lines += ["", f"=== SKILL {i}: {item['name']} ===", skill["body"], "", "Facts:", json.dumps(item["facts"], ensure_ascii=False),
+                  f"Automatic screens cover only: {SCREENED[item['name']] or 'nothing (no screens for this skill)'}."]
         failed = [c for c in item["checks"] if not c["passed"]]
         if failed:
             lines += ["Automatic screens that failed:", *(f"- {c['check']}: {c['detail']}" for c in failed)]
@@ -523,7 +555,8 @@ def enforce(out: dict, ai: dict, names: list[str]) -> dict:
     return out
 
 
-def evaluate(username: str, ctx: dict, ai: dict) -> dict:
+def review(username: str, ctx: dict, ai: dict) -> dict:
+    """The evaluation, without saving it to history (the benchmark runs this on planted errors)."""
     if not GEMINI_AVAILABLE:
         raise RuntimeError("The google-genai package is not installed.")
     if not is_gemini_api_configured():
@@ -574,6 +607,12 @@ def evaluate(username: str, ctx: dict, ai: dict) -> dict:
         "model": MODEL,
         "generated_at": datetime.now().isoformat(),
     })
+    return out
+
+
+def evaluate(username: str, ctx: dict, ai: dict) -> dict:
+    out = review(username, ctx, ai)
+    names = [s["name"] for s in out["skills"]]
     out["saved"] = update_history(username, ctx["symbol"], ai["generated_at"], {"evaluation": {
         k: out[k] for k in ("verdict", "confidence_adjusted", "summary", "findings", "counter_case", "invalidation",
                             "entry_plan", "generated_at")

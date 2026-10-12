@@ -166,18 +166,20 @@ These are rough rules of thumb for visual comparison, without sector data, so a 
 
 **Step 2: Generate Assessment** sends Gemini (`gemini-3.5-flash-lite`) a compact prompt:
 
-- Technical readings
+- Technical readings, with the date of the bar the price comes from
 - Key ratios, with margins and growth correctly as percentages
 - The analyst consensus and target
 - Each forecast model's skill against no change, its significance and direction accuracy, and the GARCH range. When no model beats no change, the prompt says to treat the forecasts as no signal
 - Net tone with its interval and verdict, the price change over the window, the share of headlines reporting price moves, a note that tone is context rather than a forecast, and the 5 strongest-toned headlines
 - Your position
+- What the call means, matching how the Track Record scores it: BUY expects the stock to beat the S&P 500 by more than 1 percentage point over the time horizon, SELL to lag it by more than that, HOLD neither. Short-term is about 3 months, Medium-term about 1 year, Long-term about 3 years. Confidence is the probability in tenths that the call proves right (7 = 70%)
 
 Gemini must return JSON that matches a schema: recommendation (BUY, HOLD or SELL), confidence (1–10), time horizon, price target, step-by-step reasoning, strengths, risks, advice on the position, and a summary. Because the output is structured, nothing is guessed from free text.
 
 Each assessment is:
 
-- appended to `data/recommendation_history_<user>.json`, where it feeds the Track Record
+- appended to `data/recommendation_history_<user>.json`, where it feeds the Track Record. The record includes the model, the prompt version (`assessment.PROMPT_VERSION`; bump it whenever the prompt changes), the date of the quoted price, and the analyst consensus and average app score at the time, for the Track Record's simple rules
+- appended with its full prompt and context to `data/assessment_inputs_<user>.jsonl` (one JSON line per call, about 15 KB each), so a new prompt version can be replayed on past inputs
 - logged to `data/gemini_usage.json`, with real token counts from the API response
 - exportable as a PDF (summary table, position advice, reasoning, strengths and risks, and the evaluation if one was run)
 
@@ -197,13 +199,47 @@ Models asked to review their own answer don't reliably improve it, and tend to f
    | Entry plan | BUY, or advice to add | all at once, staged or wait; size from volatility; when to review. No price predictions | mixed |
    | Position review | you hold the stock | anchoring on the purchase price; concentration (above 20% of the portfolio, a rule of thumb) | strong |
 
-2. **Code computes each skill's facts** (implied P/E, days to the report, a 20-day 95% range from GARCH volatility, portfolio share) and runs **rule screens** on the wording, such as "calls the stock oversold at RSI 61" or "target above every analyst's". Screens quote the sentence they matched.
+2. **Code computes each skill's facts** (implied P/E, days to the report, a 20-day 95% range from GARCH volatility, portfolio share) and runs **rule screens** on the wording, such as "calls the stock oversold at RSI 61" or "target above every analyst's". Screens quote the sentence they matched. Screens are tuned to flag too much rather than too little, because Gemini dismisses false alarms but never sees a miss: an opposing radar axis counts as answered only when a sentence about it cites figures, so "despite a stretched valuation" is flagged. The prompt lists what each skill's screens cover, so a claim no screen covers reads as unchecked rather than correct.
 3. **One Gemini call** reviews the recommendation with the selected skills, confirming or dismissing each failed screen. It returns a verdict (*stands*, *weakened* or *contradicted*), an adjusted confidence, findings by skill, the case against, conditions that would show the call is wrong, and an entry plan when that skill ran.
 4. **Code enforces the rules:** confidence can only go down, "stands" can't have a major challenge, and findings must come from a selected skill. The recommendation itself never changes.
 
 The evaluation is saved with the recommendation in your history (under `evaluation`) and logged as `assessment_evaluation`. It costs one Gemini call of about 5,000–6,500 tokens and takes about 3 seconds, plus a moment for the 5-year back-test.
 
-**Testing.** `tests/test_evaluation.py` checks skill selection, the screens and the rules on saved AAPL and RIVN assessments (`PYTHONPATH=. pytest tests`). In a live test in October 2026, errors were planted in real one-shot results for AAPL, KO, DBS and RIVN: a wrong RSI reading, reliance on a forecast without skill, the wrong side of the 200-day average, and a target 20% above the highest analyst's. The evaluation flagged 15 of 16 at first (the miss was caught 3 times out of 3 after the screens began quoting the sentence), and raised no challenges about claims on any of the 4 unaltered results. That measures error-catching, not whether the calls make money: the track record will show that over time.
+**Testing.** `tests/test_evaluation.py` checks skill selection, the screens and the rules on saved AAPL and RIVN assessments (`PYTHONPATH=. pytest tests`). In a live test in October 2026, errors were planted in real one-shot results for AAPL, KO, DBS and RIVN: a wrong RSI reading, reliance on a forecast without skill, the wrong side of the 200-day average, and a target 20% above the highest analyst's. The evaluation flagged 15 of 16 at first (the miss was caught 3 times out of 3 after the screens began quoting the sentence), and raised no challenges about claims on any of the 4 unaltered results. Every one of those planted errors was a kind a screen matches.
+
+`backend/evaluation_benchmark.py` repeats that test on demand and adds errors **no screen covers**, so only Gemini can catch them: a wrong P/E or RSI figure, a wrong distance from the 52-week high, a misstated analyst consensus or earnings date, and advice anchored on the purchase price. A planted error counts as caught only when a challenge names it (a pattern specific to that error, such as the wrong figure), not merely when the right skill objects to something: the unaltered one-shots draw challenges of their own. The *Control* column applies the same pattern to the unaltered one-shot's challenges and should read 0. It reports the catch rate for screened and unscreened errors separately, challenges on the unaltered one-shots, and how often repeated runs agree on the verdict:
+
+```bash
+PYTHONPATH=. python -m backend.evaluation_benchmark --runs 3   # about 45 Gemini calls
+```
+
+`--json results.json` saves the raw results and `--rescore results.json` re-scores them without calling Gemini. It paces itself to 12 requests a minute (`--rpm`) for the free tier.
+
+First run (9 October 2026, 3 runs per case): errors a screen matched were caught **21 of 21** times; errors no screen covers only **5 of 18** (a wrong P/E 1/3, a wrong RSI figure 1/3, the wrong distance from the 52-week high 0/3, a wrong analyst consensus 0/3, a misstated earnings date 0/3, anchoring on the purchase price 3/3). Only 8 of 15 cases got the same verdict on all three runs. So the review is reliable where a screen points it at a claim, and mostly misses numbers it has to check unprompted. The run also showed the earnings screen accepting "consistent earnings beats" as acknowledging the next report; it now needs a sentence that looks ahead to it.
+
+### Scheduled assessments
+
+`backend/batch.py`, scheduled by `schedule.sh`
+
+To build a track record that isn't limited to the stocks you happen to look at, a fixed list of 30 stocks across sectors (`batch.UNIVERSE`) is assessed every **Monday and Friday at 09:00** local time:
+
+- **On the local model** (Ollama, `qwen3.5:9b` by default): free and without rate limits. It takes about a minute per stock on an M2 MacBook, so a run of 30 takes about 35 minutes. Thinking is off by default (`OLLAMA_THINK`); with it on, a stock took 6–7 minutes. Gemini thinks at its "low" level, so a comparison is between the models as configured, not just the weights.
+- **In the last week of the month**, Gemini also assesses each stock from the **same context**, so the Track Record can compare the two models on identical inputs. Calls are paced to 12 a minute for Gemini's free tier.
+- Scheduled calls leave out your position and news sentiment, so each rests on the same kinds of data every run. They're saved to your history with `source: "scheduled"` and the run they belong to, and their full inputs go to `assessment_inputs_<user>.jsonl` as usual. Evaluation (the second look) still runs only when you ask for it, on Gemini.
+- Each run's summary (calls saved, failures, anything skipped) is appended to `data/scheduled_runs.json`; output goes to `data/logs/scheduled.log`.
+- If Ollama isn't running, the local calls are skipped and the summary says why. Gemini is never used in place of it.
+
+```bash
+./schedule.sh install     # Mondays and Fridays at 09:00 (SCHEDULE_USER=admin by default)
+./schedule.sh status      # whether it's loaded, and the end of the log
+./schedule.sh run         # run now
+./schedule.sh uninstall
+PYTHONPATH=. python -m backend.batch --mode compare --symbols AAPL KO   # a one-off run by hand
+```
+
+launchd starts a run missed while the Mac was asleep when it wakes; a run missed while it was shut down is skipped. The Ollama app must be running (it starts at login by default). Local-model calls appear on API Usage at no cost and don't count towards the Gemini rate meters.
+
+That measures error-catching, not whether the calls make money. The Track Record's **Is the second look right?** card measures that.
 
 AI output can be wrong and is not financial advice.
 
@@ -211,22 +247,32 @@ AI output can be wrong and is not financial advice.
 
 `backend/track_record.py`
 
-Every saved recommendation is scored against the **current** price.
+Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the same days, so a rising market doesn't count as skill.
 
-| Signal | Return shown | Outcome |
+- **Entry:** the first close after the call was made (US closes are at 16:00 New York time; saved timestamps are in the server's local time). That is the first price a follower could have traded at. The quote saved with the call can be stale or intraday, and is shown for reference only.
+- **Prices** are split-adjusted closes (five years of history), so a later split doesn't turn a BUY into a loss. Dividends are not included.
+- **Checkpoints:** the return 1 week, 1 month, 3 months, 6 months and 1 year (5, 21, 63, 126 and 252 trading days) after the entry, for the stock and for the S&P 500.
+- **Score at** picks the checkpoint every call is judged at, so calls of different ages are judged over the same length of time. *Stated* uses each call's own horizon: Short-term 3 months, Medium-term 1 year, Long-term 3 years. Until that checkpoint passes, a call is **Pending** and shows its return vs the S&P 500 so far.
+
+| Signal | Return scored | Outcome |
 |---|---|---|
-| BUY | price change since the signal | Correct if the price rose |
-| SELL | −(price change): the loss avoided | Correct if the price fell |
-| HOLD | price change | Neutral (not scored) |
+| BUY | stock − S&P 500 | Correct above +1 point, Wrong below −1 point, otherwise Flat |
+| SELL | S&P 500 − stock: the underperformance avoided | the same |
+| HOLD | stock − S&P 500 | Neutral (not scored) |
 
-If there is no current price, the outcome is **Pending**.
+- **Win rate** = correct ÷ (correct + wrong). Flat calls and HOLDs are left out. It shows a 95% range (Wilson interval), and below 30 scored calls a banner says the numbers are anecdotes.
+- **Average vs S&P 500, best and worst** use the scored BUY and SELL returns above.
+- **Targets reached:** whether the 12-month price target was reached by a close within 252 trading days. A call whose year hasn't run out and hasn't reached its target is still open. When a stock has split since the call (the entry close and the saved quote differ by 40% or more), the target and your share count are rescaled by the same ratio.
+- **"What if you followed every BUY?"** puts $1,000 into each BUY at its entry close and holds it to today. The chart shows the return day by day, against the same money put into the S&P 500 on the same days.
+- **Sold or held?** takes the shares you held when each call was made and compares selling them at the entry close with holding them to today. *Following the call* is the gain from doing what it said: selling for a SELL, keeping the shares for a BUY or HOLD. Calls on the same stock cover the same shares, so the rows don't add up to a total. Share counts are carried through any split; dividends and tax are left out. Each signal shows the same comparison when expanded.
+- **Against simple rules** compares the AI with rules applied to the same stocks and dates, on the AI's calls that have reached the scoring checkpoint (all symbols, ignoring the filters): always BUY; 12-1 month momentum (BUY if the year's return, skipping the latest month, is positive, else SELL), computed from price history; the analyst consensus at the call; and the app's radar scores (BUY at an average of 55 or more, SELL at 45 or less). The last two are saved from prompt version 2 on, so older calls skip them. If the AI doesn't beat these, it isn't adding accuracy.
+- **Gemini vs local model** appears once calls from more than one model exist (all symbols, ignoring the filters). *Head to head* covers the comparison runs, where both models assessed the same stock from the same context: how often they made the same call, and each one's win rate and average return on those pairs. *All calls* covers every call each model made, on different stocks and dates, so the head-to-head is the fairer test.
+- **Source** filter: calls you ran yourself, or scheduled ones. A **Model** filter appears once there is more than one model.
+- **Prompt version** filter appears once calls from more than one prompt version exist. Version 1 is every call made before the prompt defined the call.
+- **By symbol** appears when there is more than one symbol. Repeated calls on one stock move together, so one symbol can carry the whole record.
+- Each signal expands to show the saved quote, the entry close, the return since entry vs the S&P 500, the target, the checkpoints, your position when it was generated, the reasoning and the strengths and risks. Records saved by the original Streamlit version have no separate steps and show their original reasoning text instead.
 
-- **Win rate** = correct ÷ (correct + wrong). HOLDs are excluded.
-- **Average, best and worst** use the returns shown above.
-- **"What if you followed every BUY?"** assumes $1,000 was invested at each BUY signal and values every position at today's price. The chart shows the cumulative return in signal order.
-- Each signal expands to show prices, the target, your position when it was generated, the reasoning and the strengths and risks. Records saved by the original Streamlit version have no separate steps and show their original reasoning text instead.
-
-Scoring ignores the stated time horizon: a long-term BUY from last week is judged on one week of movement.
+**Is the second look right?** appears once any scored call has an evaluation. It groups scored BUY and SELL calls (all symbols, ignoring the filters) by evaluation verdict, with each group's win rate and average return vs the S&P 500 at the selected checkpoint; if the evaluation works, *weakened* and *contradicted* calls should do worse than *stands*. It also gives the Brier score (mean of (confidence/10 − outcome)², lower is better) for the original and the adjusted confidence on the same calls: if lowering confidence was warranted, the adjusted score is lower. Each score is also shown as skill vs a coin flip (1 − score ÷ 0.25, where 0.25 is the score of always saying 50%). Below 30 evaluated calls it says the numbers are anecdotes. Evaluation is optional, so evaluated calls are the ones you chose to check; compare groups with that in mind.
 
 ## API Usage
 

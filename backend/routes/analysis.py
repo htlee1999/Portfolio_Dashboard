@@ -191,5 +191,7 @@ def assessment_report(body: ReportIn, user: dict = Depends(current_user)):
 
 
 @router.get("/track-record")
-def get_track_record(user: dict = Depends(current_user)):
-    return clean(track_record.build(user["username"]))
+def get_track_record(horizon: str = "21", user: dict = Depends(current_user)):
+    if horizon != "stated" and (not horizon.isdigit() or int(horizon) not in track_record.CHECKPOINTS):
+        raise HTTPException(400, "Invalid horizon")
+    return clean(track_record.build(user["username"], horizon if horizon == "stated" else int(horizon)))

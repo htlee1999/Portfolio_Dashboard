@@ -10,6 +10,9 @@ The API reads `.env` from the repository root at startup (`python-dotenv`). Copy
 | `GEMINI_API_KEY` | none | Enables AI Assessment |
 | `SERP_API_KEY` | none | Enables Sentiment and the news input to AI Assessment |
 | `SENTIMENT_MODEL` | `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis` | Hugging Face model that scores headlines. Any model whose labels are positive, neutral and negative works. Needs `torch` and `transformers` |
+| `OLLAMA_URL` | `http://localhost:11434` | Local Ollama server for scheduled assessments |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Local model for scheduled assessments. Pull it first: `ollama pull qwen3.5:9b` (7.6 GB; about 7 GB of memory while running) |
+| `OLLAMA_THINK` | `0` | `1` lets the local model think before answering. On an M2 that took 6–7 minutes a stock instead of about 1 |
 | `CHRONOS_MODEL` | `amazon/chronos-bolt-tiny` | Pretrained forecaster for the optional Chronos-Bolt model on Forecast |
 | `SESSION_SECRET` | auto-generated | Key that signs session cookies, at least 32 characters. If unset, a random key is created in `data/.session_secret` on first run. **Required** on Vercel (or with `REQUIRE_SESSION_SECRET=1`) |
 | `COOKIE_SECURE` | auto | Cookies are `Secure` whenever the request arrived over HTTPS. Set `1` to force on, `0` to force off |

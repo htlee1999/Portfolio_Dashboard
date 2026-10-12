@@ -57,7 +57,8 @@ export type Performance = {
   unpriced: string[];
 };
 
-export type Quote = { price: number; change: number; change_pct: number; volume: number | null };
+/** `date` is the bar the price comes from (intraday during a session). */
+export type Quote = { price: number; date?: string; change: number; change_pct: number; volume: number | null };
 
 export type TechnicalPoint = {
   date: string;
@@ -389,18 +390,53 @@ export type SavedEvaluation = Pick<Evaluation, "verdict" | "confidence_adjusted"
   skills: string[];
 };
 
+/** Return over `days` trading days after the entry close, vs the S&P 500; null until that day has passed. */
+export type Checkpoint = { days: number; label: string; date: string | null; stock: number | null; benchmark: number | null; excess: number | null };
+
 export type Signal = {
   id: number;
   timestamp: string;
   symbol: string;
   recommendation: "BUY" | "HOLD" | "SELL";
   confidence: number | null;
+  /** The quote saved with the call; may be stale or intraday, and isn't split-adjusted. */
   price_at_signal: number | null;
+  /** Date of the bar that quote came from (saved from prompt version 2 on). */
+  quote_date: string | null;
   current_price: number | null;
   price_target: number | null;
   time_horizon: string | null;
+  /** First split-adjusted close at or after the call: the price scoring starts from. */
+  entry_date: string | null;
+  entry_price: number | null;
+  /** Since the entry close: the stock, the S&P 500, and the difference. */
   return_pct: number | null;
-  outcome: "Correct" | "Wrong" | "Neutral" | "Pending";
+  benchmark_pct: number | null;
+  excess_pct: number | null;
+  /** Shares today per share held at the signal (above 1 after a split). */
+  split_factor: number;
+  checkpoints: Checkpoint[];
+  /** Whether the 12-month target was reached; `hit` is null while the year is still running. */
+  target: { price: number; hit: boolean | null; date: string | null } | null;
+  /** BUYs only: [date, stock growth of 1, S&P 500 growth of 1] each day since the entry close. */
+  path: [string, number, number][] | null;
+  /** 12-1 month momentum at the entry close, as a fraction; null with under a year of history. */
+  momentum: number | null;
+  /** Trading days the call is scored at; the stock minus the S&P 500 there, and the AI's return (a SELL's is negated). */
+  score_days: number;
+  score_excess: number | null;
+  score_return: number | null;
+  /** What each simple rule would have said at the same moment; null when it lacked the data. */
+  rules: Record<RuleKey, Signal["recommendation"] | null>;
+  model: string | null;
+  provider: "gemini" | "local";
+  /** "scheduled" calls come from the twice-weekly run over a fixed list of stocks. */
+  source: "manual" | "scheduled";
+  /** Scheduled run the call belongs to; both models' calls in a comparison run share it. */
+  run: string | null;
+  /** 1 for calls made before the prompt defined BUY, SELL and confidence. */
+  prompt_version: number;
+  outcome: "Correct" | "Wrong" | "Flat" | "Neutral" | "Pending";
   strengths: string[];
   risks: string[];
   reasoning: string;
@@ -408,6 +444,46 @@ export type Signal = {
   position_advice: string | null;
   portfolio_context: { avg_purchase_price: number; total_quantity: number; unrealized_pct: number } | null;
   evaluation: SavedEvaluation | null;
+};
+
+export type RuleKey = "always_buy" | "momentum" | "analyst" | "app_score";
+
+/** The AI against simple rules on the AI's calls that have reached the scoring checkpoint. */
+export type RuleComparison = {
+  checked: number;
+  rows: { key: "ai" | RuleKey; label: string; calls: number; win_rate: number | null; avg_return: number | null }[];
+};
+
+type ModelRow = { model: string; calls: number; win_rate: number | null; avg_return: number | null };
+
+/** Each model's scored calls, and the paired calls from comparison runs (same stock, same context). */
+export type ModelComparison = {
+  models: string[];
+  all: ModelRow[];
+  pairs: number;
+  agreement: number | null;
+  paired: ModelRow[];
+  pairs_checked: number;
+};
+
+export type TrackRecord = {
+  signals: Signal[];
+  symbols: string[];
+  horizon: number | "stated";
+  flat_band: number;
+  benchmark_available: boolean;
+  calibration: Calibration;
+  rules: RuleComparison;
+  models: ModelComparison;
+};
+
+/** Scored BUY/SELL calls grouped by evaluation verdict, and Brier scores of original vs adjusted confidence. */
+export type Calibration = {
+  groups: { verdict: SavedEvaluation["verdict"] | "not_evaluated"; n: number; win_rate: number | null; avg_return: number | null }[];
+  evaluated: number;
+  lowered: number;
+  brier_original: number | null;
+  brier_adjusted: number | null;
 };
 
 export type Usage = {

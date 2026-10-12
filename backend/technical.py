@@ -30,6 +30,8 @@ def _quote(data: pd.DataFrame) -> dict:
     last, prev = float(close.iloc[-1]), float(close.iloc[-2]) if len(close) > 1 else float(close.iloc[-1])
     return {
         "price": last,
+        # Date of the bar the price comes from; during a session it's today's, intraday.
+        "date": data.index[-1].date().isoformat(),
         "change": last - prev,
         "change_pct": (last - prev) / prev * 100 if prev else 0.0,
         "volume": num(data["Volume"].iloc[-1]) if "Volume" in data else None,

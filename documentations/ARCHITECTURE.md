@@ -42,11 +42,12 @@ The backend is a Python package run from the repository root as `uvicorn backend
 | `predictive.py` | Next-session return models (ridge, gradient boosting, random forest, optional Chronos-Bolt), walk-forward tested against a no-change forecast |
 | `volatility.py` | GARCH(1,1) with Student-t errors for the next-session range |
 | `sentiment.py` | SERPapi news fetch, headline filtering (window, duplicates, routine filings, firm-specific), financial-news model scoring with VADER fallback |
-| `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini with a response schema and records the result |
+| `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini or the local model (Ollama) with a response schema and records the result and its inputs |
+| `batch.py` | Scheduled assessments over a fixed stock list: local model on Mondays and Fridays, plus Gemini on the same context in the last week of the month |
 | `evaluation.py` | Second look at an assessment: picks skills by rule, computes their facts and rule screens, one Gemini review, enforces that it can only flag and lower confidence |
 | `skills/*/SKILL.md` | The evaluation's skills: instructions, when each applies, evidence rating and sources (Agent Skills format) |
 | `reports.py` | Renders an assessment as a PDF (reportlab) |
-| `track_record.py` | Scores historical recommendations against current prices |
+| `track_record.py` | Scores past recommendations against the S&P 500 at fixed checkpoints, and compares them with simple rules and between models |
 | `usage.py` | Appends to and summarizes `data/gemini_usage.json` |
 | `utils.py` | `clean()`, `ttl_cache`, `series_points()` |
 

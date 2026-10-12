@@ -7,15 +7,21 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from config import GEMINI_AVAILABLE, get_gemini_api_key, is_gemini_api_configured, normalize_symbol
+import requests
+
+from config import (GEMINI_AVAILABLE, get_gemini_api_key, get_ollama_model, get_ollama_url, is_gemini_api_configured,
+                    normalize_symbol, ollama_think)
 
 from . import fundamentals, market, predictive, sentiment, technical, usage
-from .storage import append_history, load_holdings
+from .storage import append_history, append_inputs, load_holdings
+from .track_record import FLAT_BAND
 
 MODEL = "gemini-3.5-flash-lite"
 # Gemini 3 models think before answering; "minimal" is this model's default. "low" leaves room
 # to weigh conflicting signals without much extra cost (thinking tokens bill as output).
 THINKING_LEVEL = "low"
+# Bump when the prompt changes, so the Track Record can compare versions. 1: before the call was defined.
+PROMPT_VERSION = 2
 
 
 def _portfolio_position(username: str, symbol: str) -> dict | None:
@@ -162,8 +168,19 @@ def _scores(tech: dict, fund: dict, pred: dict | None, sent: dict | None) -> lis
     return [{"axis": axis, "score": 50 if score is None else score} for axis, score in raw.items()]
 
 
-def build_context(username: str, symbol: str, period: str, include_sentiment: bool) -> dict:
-    """Run every analysis the AI needs. Returns a JSON-safe context dict."""
+def rule_inputs(ctx: dict) -> dict:
+    """What the Track Record's simple rules need that can't be rebuilt later: the analyst consensus and
+    the app's own scores as they stood at the call. (Momentum is recomputed from price history.)"""
+    scores = [x["score"] for x in ctx["scores"]]
+    return {
+        "analyst": ctx["fundamental"]["analyst"].get("recommendation_key"),
+        "app_score": sum(scores) / len(scores) if scores else None,
+    }
+
+
+def build_context(username: str, symbol: str, period: str, include_sentiment: bool, include_position: bool = True) -> dict:
+    """Run every analysis the AI needs. Returns a JSON-safe context dict. Scheduled runs leave the
+    position out, so the call is about the stock alone and the same for every run."""
     symbol = normalize_symbol(symbol)
     sentiment_on = include_sentiment and sentiment.status()["enabled"]
 
@@ -203,7 +220,7 @@ def build_context(username: str, symbol: str, period: str, include_sentiment: bo
         "predictive": pred,
         "sentiment": sent_light,
         "sentiment_status": {"requested": include_sentiment, "enabled": sentiment.status()["enabled"], "error": sent_error},
-        "position": _portfolio_position(username, symbol),
+        "position": _portfolio_position(username, symbol) if include_position else None,
         "scores": _scores(tech, fund, pred, sent),
         "ai_available": GEMINI_AVAILABLE and is_gemini_api_configured(),
     }
@@ -219,9 +236,13 @@ class ReasoningStep(BaseModel):
 class Assessment(BaseModel):
     steps: list[ReasoningStep] = Field(description="Step-by-step reasoning, one step per section given in the prompt "
                                        "(technical, fundamental, then forecast, sentiment and position if present), then a synthesis")
-    recommendation: Literal["BUY", "HOLD", "SELL"]
-    confidence: int = Field(ge=1, le=10)
-    time_horizon: Literal["Short-term", "Medium-term", "Long-term"]
+    recommendation: Literal["BUY", "HOLD", "SELL"] = Field(
+        description=f"BUY: expected to beat the S&P 500 by more than {FLAT_BAND:g} percentage point over the time horizon; "
+                    f"SELL: expected to lag it by more than that; HOLD: neither, or no clear edge")
+    confidence: int = Field(ge=1, le=10, description="Probability in tenths that the call proves right by that definition "
+                            "(7 = 70%; 5 = a coin flip)")
+    time_horizon: Literal["Short-term", "Medium-term", "Long-term"] = Field(
+        description="Short-term: about 3 months; Medium-term: about 1 year; Long-term: about 3 years")
     price_target: float | None = Field(description="12-month price target in the currency the price is quoted in, or null")
     strengths: list[str]
     risks: list[str]
@@ -299,7 +320,8 @@ def _prompt(ctx: dict) -> str:
         f"Data as of {ctx['generated_at'][:10]}. Prices are in {f['profile'].get('currency') or 'the trading currency'}.",
         "",
         "TECHNICAL",
-        f"- Price {_fmt(t['quote']['price'])} ({_fmt(t['quote']['change_pct'], '+.2f', '%')} on the day)",
+        f"- Price {_fmt(t['quote']['price'])} as of {t['quote'].get('date') or 'n/a'} "
+        f"({_fmt(t['quote']['change_pct'], '+.2f', '%')} on the day)",
         f"- RSI(14) {_fmt(sig['rsi']['value'])} ({sig['rsi']['state']}; extremes mean stretched, not a reversal "
         f"signal on their own, and RSI can stay above 70 through strong uptrends)",
         f"- MACD {sig['macd']['state']} (MACD {_fmt(sig['macd']['macd'], '.3f')} vs signal {_fmt(sig['macd']['signal'], '.3f')})",
@@ -365,59 +387,110 @@ def _prompt(ctx: dict) -> str:
         lines += ["", "CURRENT POSITION",
                   f"- {pos['quantity']:.2f} shares at average cost {_fmt(pos['avg_cost'])} {pos['currency']}",
                   f"- Unrealized {_fmt(pos['unrealized_pct'], '+.2f', '%')}"]
-    lines += ["", "Weigh where the signals agree or diverge. Be specific and concise; do not invent data that is not given, "
+    lines += ["", "WHAT THE CALL MEANS (it will be scored this way)",
+              f"- BUY: you expect {ctx['symbol']} to beat the S&P 500 by more than {FLAT_BAND:g} percentage point over the time "
+              f"horizon. SELL: you expect it to lag the S&P 500 by more than that. HOLD: neither, or the evidence gives no clear edge.",
+              "- Time horizon: Short-term about 3 months, Medium-term about 1 year, Long-term about 3 years.",
+              "- Confidence: the probability, in tenths, that the call proves right by this definition (7 = 70%, 5 = a coin flip).",
+              "", "Weigh where the signals agree or diverge. Be specific and concise; do not invent data that is not given, "
               "and skip any section above that is missing rather than guessing at it."]
     return "\n".join(lines)
 
 
-def generate(username: str, ctx: dict) -> dict:
+def _gemini(prompt: str) -> tuple[Assessment, str, int | None, int | None]:
+    """The assessment from Gemini, its raw text, and input and output tokens."""
     if not GEMINI_AVAILABLE:
         raise RuntimeError("The google-genai package is not installed.")
     if not is_gemini_api_configured():
         raise RuntimeError("GEMINI_API_KEY is not configured in .env.")
-
     from google import genai
 
-    prompt = _prompt(ctx)
-    try:
-        client = genai.Client(api_key=get_gemini_api_key())
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": Assessment,
-                "thinking_config": {"thinking_level": THINKING_LEVEL},
-                "automatic_function_calling": {"disable": True},  # no tools here
-            },
-        )
-        if response.parsed is None and not response.text:
-            reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
-            raise RuntimeError(f"empty response ({reason})")
-        result: Assessment = response.parsed or Assessment.model_validate_json(response.text)
-    except Exception as e:
-        usage.log_call(MODEL, prompt, "", "investment_assessment", ctx["symbol"], success=False, error_message=str(e))
-        raise RuntimeError(f"Gemini request failed: {e}") from e
-
-    meta = getattr(response, "usage_metadata", None)
-    usage.log_call(
-        MODEL, prompt, response.text or "", "investment_assessment", ctx["symbol"],
-        input_tokens=getattr(meta, "prompt_token_count", None),
-        # Thinking tokens are billed as output but reported separately.
-        output_tokens=None if meta is None or meta.candidates_token_count is None
-        else meta.candidates_token_count + (meta.thoughts_token_count or 0),
+    client = genai.Client(api_key=get_gemini_api_key())
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": Assessment,
+            "thinking_config": {"thinking_level": THINKING_LEVEL},
+            "automatic_function_calling": {"disable": True},  # no tools here
+        },
     )
+    if response.parsed is None and not response.text:
+        reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
+        raise RuntimeError(f"empty response ({reason})")
+    meta = getattr(response, "usage_metadata", None)
+    return (
+        response.parsed or Assessment.model_validate_json(response.text),
+        response.text or "",
+        getattr(meta, "prompt_token_count", None),
+        # Thinking tokens are billed as output but reported separately.
+        None if meta is None or meta.candidates_token_count is None else meta.candidates_token_count + (meta.thoughts_token_count or 0),
+    )
+
+
+# The prompt is about 4,000 tokens; Ollama's default context can cut it off.
+OLLAMA_CONTEXT = 16384
+OLLAMA_TIMEOUT = 900
+
+
+def _ollama(prompt: str) -> tuple[Assessment, str, int | None, int | None]:
+    """The assessment from the local model, held to the same JSON schema as Gemini."""
+    try:
+        r = requests.post(f"{get_ollama_url()}/api/chat", timeout=OLLAMA_TIMEOUT, json={
+            "model": get_ollama_model(),
+            "messages": [{"role": "user", "content": prompt}],
+            "format": Assessment.model_json_schema(),
+            "stream": False,
+            "think": ollama_think(),
+            "options": {"num_ctx": OLLAMA_CONTEXT},
+        })
+    except requests.ConnectionError as e:
+        raise RuntimeError(f"Ollama isn't running at {get_ollama_url()}; start the Ollama app") from e
+    if r.status_code != 200:
+        raise RuntimeError(f"Ollama returned {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    text = data["message"]["content"]
+    # Thinking tokens are generated output too.
+    return Assessment.model_validate_json(text), text, data.get("prompt_eval_count"), data.get("eval_count")
+
+
+PROVIDERS = {"gemini": _gemini, "local": _ollama}
+
+
+def model_name(provider: str) -> str:
+    return MODEL if provider == "gemini" else get_ollama_model()
+
+
+def generate(username: str, ctx: dict, provider: str = "gemini", source: str = "manual", run: str | None = None) -> dict:
+    """Ask the model for an assessment and append it to the history. ``source`` is "manual" or
+    "scheduled"; ``run`` ties together the calls of one scheduled run."""
+    prompt = _prompt(ctx)
+    model = model_name(provider)
+    try:
+        result, text, input_tokens, output_tokens = PROVIDERS[provider](prompt)
+    except Exception as e:
+        usage.log_call(model, prompt, "", "investment_assessment", ctx["symbol"], success=False, error_message=str(e))
+        raise RuntimeError(f"{'Gemini' if provider == 'gemini' else 'Local model'} request failed: {e}") from e
+    usage.log_call(model, prompt, text, "investment_assessment", ctx["symbol"],
+                   input_tokens=input_tokens, output_tokens=output_tokens)
 
     out = result.model_dump()
     pos = ctx.get("position")
     # The timestamp doubles as the record's key, so an evaluation can be attached to it later.
     generated_at = datetime.now().isoformat()
+    # The full inputs go to their own file so a later prompt version can be replayed on them.
+    append_inputs(username, {"timestamp": generated_at, "symbol": ctx["symbol"], "prompt_version": PROMPT_VERSION,
+                             "model": model,
+                             "thinking_level": THINKING_LEVEL if provider == "gemini" else "on" if ollama_think() else "off",
+                             "prompt": prompt, "context": ctx})
     append_history(username, {
         "timestamp": generated_at,
         "symbol": ctx["symbol"],
         "recommendation": out["recommendation"],
         "confidence": out["confidence"],
         "price_at_signal": ctx["technical"]["quote"]["price"],
+        "quote_date": ctx["technical"]["quote"].get("date"),
         "price_target": out["price_target"],
         "time_horizon": out["time_horizon"],
         "strengths": out["strengths"],
@@ -430,5 +503,11 @@ def generate(username: str, ctx: dict) -> dict:
             "total_quantity": pos["quantity"],
             "unrealized_pct": pos["unrealized_pct"],
         },
+        "model": model,
+        "provider": provider,
+        "source": source,
+        "run": run,
+        "prompt_version": PROMPT_VERSION,
+        "rule_inputs": rule_inputs(ctx),
     })
-    return {**out, "model": MODEL, "generated_at": generated_at}
+    return {**out, "model": model, "generated_at": generated_at}

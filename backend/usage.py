@@ -61,6 +61,7 @@ def summary(days: int) -> dict:
     now = datetime.now()
     records = _records()
     recent = _since(records, now - timedelta(days=days))
+    gemini = [r for r in records if str(r.get("model", "")).startswith("gemini")]
 
     def group(key: str) -> list[dict]:
         out: dict[str, dict] = {}
@@ -97,10 +98,11 @@ def summary(days: int) -> dict:
         "daily": sorted(daily.values(), key=lambda d: d["date"]),
         "operations": group("operation"),
         "symbols": group("symbol"),
+        # Gemini's limits only: local-model calls are logged too but don't count against them.
         "rate": {
-            "minute": len(_since(records, now - timedelta(minutes=1))),
-            "hour": len(_since(records, now - timedelta(hours=1))),
-            "day_tokens": sum(r["total_tokens"] for r in _since(records, today)),
+            "minute": len(_since(gemini, now - timedelta(minutes=1))),
+            "hour": len(_since(gemini, now - timedelta(hours=1))),
+            "day_tokens": sum(r["total_tokens"] for r in _since(gemini, today)),
             "limits": RATE_LIMITS,
         },
         "recent": sorted(recent, key=lambda r: r["timestamp"], reverse=True)[:25],

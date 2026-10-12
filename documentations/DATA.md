@@ -6,9 +6,12 @@ Everything is stored as JSON in `data/` at the repository root. The directory is
 data/
 ├── users.json                         # accounts (shared)
 ├── settings.json                      # app settings (shared)
-├── gemini_usage.json                  # Gemini call log (shared)
+├── gemini_usage.json                  # AI call log, Gemini and local model (shared)
+├── scheduled_runs.json                # summary of each scheduled run (last 200)
 ├── portfolio_<username>.json          # holdings, one file per user
 ├── recommendation_history_<username>.json   # AI assessments, one file per user
+├── assessment_inputs_<username>.jsonl       # each assessment's full prompt and context, one line per call
+├── logs/scheduled.log                 # output of scheduled runs
 ├── backups/
 │   └── portfolio_backup_<username>_<YYYYMMDD_HHMMSS>.json
 └── .session_secret                    # cookie signing key (if SESSION_SECRET isn't set)
@@ -79,6 +82,13 @@ An array, appended once per AI assessment:
     "steps": [{ "title": "Technical picture", "content": "..." }],
     "position_advice": "...",
     "portfolio_context": { "avg_purchase_price": 121.28, "total_quantity": 98, "unrealized_pct": 407.7 },
+    "quote_date": "2026-10-01",
+    "model": "gemini-3.5-flash-lite",
+    "provider": "gemini",
+    "source": "manual",
+    "run": null,
+    "prompt_version": 2,
+    "rule_inputs": { "analyst": "buy", "app_score": 64.2 },
     "evaluation": { "verdict": "weakened", "confidence_adjusted": 5, "summary": "...", "findings": [...],
                     "counter_case": "...", "invalidation": [...], "entry_plan": null,
                     "skills": ["claim-check", "counter-case", "..."], "generated_at": "..." }
@@ -86,7 +96,7 @@ An array, appended once per AI assessment:
 ]
 ```
 
-`evaluation` is present only when **Evaluate** was run on that assessment. `timestamp` identifies the record: it equals the assessment's `generated_at`.
+`evaluation` is present only when **Evaluate** was run on that assessment. `provider` is `gemini` or `local`; `source` is `manual` or `scheduled`, and scheduled calls carry their `run` (both models' calls in a comparison run share it). `rule_inputs` feeds the Track Record's simple rules. Records from before prompt version 2 have none of the fields from `quote_date` to `rule_inputs`. `timestamp` identifies the record: it equals the assessment's `generated_at`.
 
 Records written by the original Streamlit version have no `steps` or `position_advice`, and `reasoning` holds the full AI response. The Track Record handles both shapes.
 

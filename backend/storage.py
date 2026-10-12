@@ -4,8 +4,10 @@ Reads and writes the same files under ``data/`` as the original Streamlit app (m
 so existing portfolios, settings, and AI history carry over unchanged.
 """
 
+import fcntl
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -151,18 +153,50 @@ def load_history(username: str) -> list[dict]:
     return load_json(history_path(username), [])
 
 
+@contextmanager
+def _history_lock(username: str):
+    """Scheduled runs write the history from their own process, so read-modify-write needs a file lock."""
+    with open(history_path(username) + ".lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def append_history(username: str, record: dict) -> None:
-    history = load_history(username)
-    history.append(record)
-    save_json(history_path(username), history)
+    with _history_lock(username):
+        history = load_history(username)
+        history.append(record)
+        save_json(history_path(username), history)
+
+
+def inputs_path(username: str) -> str:
+    return data_path(f"assessment_inputs_{username}.jsonl")
+
+
+def append_inputs(username: str, record: dict) -> None:
+    """One JSON line per assessment: the prompt and context it was given. Append-only, and kept out of
+    the history file so the Track Record doesn't load it."""
+    with open(inputs_path(username), "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+
+
+def load_inputs(username: str) -> list[dict]:
+    try:
+        with open(inputs_path(username), encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
 
 
 def update_history(username: str, symbol: str, timestamp: str, fields: dict) -> bool:
     """Merge ``fields`` into the record for ``symbol`` saved at ``timestamp``. False if none matches."""
-    history = load_history(username)
-    for record in history:
-        if record.get("symbol") == symbol and record.get("timestamp") == timestamp:
-            record.update(fields)
-            save_json(history_path(username), history)
-            return True
+    with _history_lock(username):
+        history = load_history(username)
+        for record in history:
+            if record.get("symbol") == symbol and record.get("timestamp") == timestamp:
+                record.update(fields)
+                save_json(history_path(username), history)
+                return True
     return False

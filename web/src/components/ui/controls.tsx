@@ -42,7 +42,7 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(o.value)}
             className={cn(
-              "relative min-w-11 flex-1 cursor-pointer px-3 text-footnote font-medium whitespace-nowrap transition-colors",
+              "relative min-w-11 flex-auto cursor-pointer px-3 text-footnote font-medium whitespace-nowrap transition-colors",
               "before:absolute before:-inset-y-1 before:inset-x-0 before:content-['']",
               active ? "text-label" : "text-label-2 hover:text-label",
             )}

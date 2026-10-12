@@ -1,6 +1,6 @@
 # Portfolio Dashboard
 
-A personal portfolio tracker and stock research app. Track holdings across 16 currencies, compare performance against the S&P 500, analyze stocks with technical, fundamental, machine-learning and news-sentiment tools, and get AI-assisted BUY/HOLD/SELL assessments from Google Gemini. A track record scores past AI calls against today's price.
+A personal portfolio tracker and stock research app. Track holdings across 16 currencies, compare performance against the S&P 500, analyze stocks with technical, fundamental, machine-learning and news-sentiment tools, and get AI-assisted BUY/HOLD/SELL assessments from Google Gemini. A track record scores past AI calls against the S&P 500 at fixed checkpoints after each call.
 
 The interface follows Apple's Human Interface Guidelines: translucent materials, spring-based motion, SF Pro typography and semantic colors that adapt to light and dark mode.
 
@@ -51,7 +51,7 @@ See [Configuration](documentations/CONFIGURATION.md) for every setting, includin
 | **Forecast** | Ridge, gradient boosting and random forest models (plus optional pretrained Chronos-Bolt) for the next session's return, tested walk-forward against a no-change forecast, and a GARCH range for the next close |
 | **Sentiment** | Recent firm-specific headlines from Google Finance and Google News, scored by a financial-news language model, with a confidence interval on the net tone and research sources |
 | **AI Assessment** | Combines all of the above, plus your position, into a Gemini recommendation with step-by-step reasoning and a PDF report |
-| **Track Record** | Every past AI recommendation scored against today's price, plus a "follow every BUY" simulation |
+| **Track Record** | Every past AI recommendation scored against the S&P 500 at 1 week to 1 year, compared with simple rules and between Gemini and a local model, plus price targets and a "follow every BUY" simulation against the index |
 | **API Usage** | Gemini calls, tokens, estimated cost and rate-limit headroom |
 | **Settings** | Account, password, appearance, base currency, raw data editor and (for admins) user management |
 
@@ -76,6 +76,7 @@ backend/                FastAPI server
   sentiment.py          SERPapi news, filtering, financial-news model scoring
   assessment.py         signal aggregation and Gemini structured assessment
   evaluation.py         second-look review of an assessment with research-based skills
+  evaluation_benchmark.py  planted-error benchmark of the evaluation (live Gemini calls)
   skills/               the evaluation's skills (SKILL.md files)
   reports.py            PDF export
   track_record.py       hindsight scoring of past recommendations
@@ -110,6 +111,7 @@ setup_sentiment.py      checks the sentiment dependencies and SERPapi key
 cd web && npm run build && npm start    # production build of the web app
 cd web && npx eslint src && npx tsc --noEmit   # lint and type-check
 python3 setup_sentiment.py              # verify sentiment setup
+./schedule.sh install                   # twice-weekly assessments on a local model (needs Ollama)
 ```
 
 The API serves interactive docs at http://localhost:8000/docs while it's running.
