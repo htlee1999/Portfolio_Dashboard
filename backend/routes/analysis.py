@@ -196,7 +196,8 @@ def assessment_report(body: ReportIn, user: dict = Depends(current_user)):
 
 @router.get("/scheduled")
 def get_scheduled(user: dict = Depends(current_user)):
-    """The scheduled runs: whether one is running and how far it's got, the next run, and recent runs."""
+    """The scheduled runs: whether a chunk is running and how far the day's run has got, the next run,
+    and recent runs."""
     now = datetime.now()
     runs = [r for r in load_json(data_path(batch.RUNS_LOG), []) if r.get("user", "admin") == user["username"]]
     nxt = batch.next_run(now)
@@ -205,19 +206,23 @@ def get_scheduled(user: dict = Depends(current_user)):
         "next_run": nxt.isoformat(),
         "next_compare": batch.is_last_week(nxt.date()),
         "model": get_ollama_model(),
+        "chunk": batch.CHUNK,
+        "hours": [batch.HOURS[0], batch.HOURS[-1]],
         "local_problem": batch.local_ready(),
         "status": batch.status(),
         "runs": [{k: r.get(k) for k in ("run", "started", "finished", "providers", "skipped")}
-                 | {"ok": len(r["ok"]), "failed": len(r["failed"]), "errors": r["failed"][:5]} for r in runs[-10:][::-1]],
+                 | {"total": len(r.get("symbols") or []) or None, "ok": len(r["ok"]), "failed": len(r["failed"]),
+                    "errors": r["failed"][:5]} for r in runs[-10:][::-1]],
     })
 
 
 @router.post("/scheduled/run")
 def start_scheduled_run(user: dict = Depends(admin_user)):
-    """Start a run now, as the schedule would (comparison in the last week of the month)."""
+    """Assess the next chunk of today's run now, starting the run if there isn't one (comparison in
+    the last week of the month, as the schedule would)."""
     s = batch.status()
     if s and s["state"] == "running":
-        raise HTTPException(409, "A run is already in progress")
+        raise HTTPException(409, "A chunk is already being assessed")
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.makedirs(data_path("logs"), exist_ok=True)
     with open(data_path("logs", "scheduled.log"), "a") as log:

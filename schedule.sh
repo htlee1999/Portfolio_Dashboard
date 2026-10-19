@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Schedule the twice-weekly assessments (backend/batch.py) with macOS launchd:
-# Mondays and Fridays at 09:00 local time. A run missed while the Mac was asleep starts when it
-# wakes; one missed while it was off is skipped. The Ollama app must be running.
+# Schedule the twice-weekly assessments (backend/batch.py) with macOS launchd. On Mondays and
+# Fridays it starts every hour from 09:00 to 20:00; each start assesses the next 4 stocks of the
+# day's run and exits (the days, hours and chunk size are set in batch.py). An hour missed while
+# the Mac was asleep starts when it wakes; the later hours leave room to catch up. The Ollama app
+# must be running.
 #
 #   ./schedule.sh install     # create or update the job
 #   ./schedule.sh uninstall   # remove it
 #   ./schedule.sh status      # is it loaded, and the end of the log
-#   ./schedule.sh run         # start a run now, in the background
+#   ./schedule.sh run         # assess the next chunk now, in the background
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,6 +22,9 @@ USER_NAME="${SCHEDULE_USER:-admin}"
 case "${1:-}" in
   install)
     mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"
+    SLOTS="$(PYTHONPATH="$ROOT" "$PYTHON" -m backend.batch --print-slots | while read -r day hour; do
+      echo "    <dict><key>Weekday</key><integer>$day</integer><key>Hour</key><integer>$hour</integer><key>Minute</key><integer>0</integer></dict>"
+    done)"
     cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,8 +41,7 @@ case "${1:-}" in
   <dict><key>PYTHONPATH</key><string>$ROOT</string></dict>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+$SLOTS
   </array>
   <key>StandardOutPath</key><string>$LOG</string>
   <key>StandardErrorPath</key><string>$LOG</string>
@@ -47,7 +51,7 @@ case "${1:-}" in
 EOF
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
-    echo "Scheduled Mondays and Fridays at 09:00 for user $USER_NAME. Log: $LOG"
+    echo "Scheduled hourly on run days ($(echo "$SLOTS" | wc -l | tr -d ' ') slots a week) for user $USER_NAME. Log: $LOG"
     ;;
   uninstall)
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true

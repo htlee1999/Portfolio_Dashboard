@@ -47,6 +47,11 @@ export function dateTime(iso: string | null | undefined) {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+export function shortTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 export function relative(iso: string | null | undefined) {
   if (!iso) return "never";
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;

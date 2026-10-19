@@ -424,3 +424,43 @@ def test_batch_retries_a_failed_fetch_after_the_cooldown(monkeypatch):
     monkeypatch.setattr(batch.assessment, "build_context", build)
     monkeypatch.setattr(batch.time, "sleep", lambda s: None)
     assert batch._context("u", "AAPL") == {"symbol": "AAPL"} and len(calls) == 2
+
+
+def test_batch_assesses_a_chunk_an_hour_and_resumes(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    from backend import batch, storage
+    monkeypatch.setattr(storage, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(batch, "UNIVERSE", ["A", "B", "C", "D", "E"])
+    monkeypatch.setattr(batch, "PAUSE", 0)
+    monkeypatch.setattr(batch, "local_ready", lambda: None)
+    monkeypatch.setattr(batch.assessment, "build_context", lambda *a, **k: {})
+    monkeypatch.setattr(batch.assessment, "generate", lambda *a, **k: {"recommendation": "HOLD"})
+
+    first = batch.run("u", "local", chunk=2)
+    assert first["assessed"] == ["A", "B"] and first["finished"] is None
+    assert batch.run("u", "local", chunk=2)["assessed"] == ["C", "D"]
+    last = batch.run("u", "local", chunk=2)
+    assert last["assessed"] == ["E"] and last["finished"] and len(last["ok"]) == 5
+    assert batch.run("u", "local", chunk=2)["assessed"] == []  # later hours of a finished day
+    assert len(storage.load_json(storage.data_path(batch.RUNS_LOG), [])) == 1  # one entry for the day
+
+    # A local model that's down leaves the chunk for later instead of failing it.
+    monkeypatch.setattr(batch, "UNIVERSE", ["X"])
+    storage.save_json(storage.data_path(batch.RUNS_LOG), [])
+    monkeypatch.setattr(batch, "local_ready", lambda: "Ollama isn't running")
+    down = batch.run("u", "local")
+    assert down["assessed"] == [] and down["failed"] == [] and down["skipped"][0].startswith("local:")
+
+    today = datetime.now().replace(hour=12, minute=0)
+    s = batch.status(today)
+    expected = "waiting" if today.weekday() in batch.DAYS else "incomplete"
+    assert s["state"] == expected and s["done"] == 0
+    assert batch.status(today + timedelta(days=1))["state"] == "incomplete"
+
+
+def test_launchd_slots_cover_each_run_day_hourly():
+    from datetime import date
+    from backend import batch
+    assert [d.hour for d in batch.slots(date(2026, 10, 19))] == list(batch.HOURS)  # Monday
+    assert batch.slots(date(2026, 10, 20)) == []  # Tuesday
+    assert len(batch.HOURS) * batch.CHUNK >= len(batch.UNIVERSE)  # a day's run fits its slots

@@ -221,25 +221,26 @@ First run (9 October 2026, 3 runs per case): errors a screen matched were caught
 
 `backend/batch.py`, scheduled by `schedule.sh`
 
-To build a track record that isn't limited to the stocks you happen to look at, a fixed list of 30 stocks across sectors (`batch.UNIVERSE`) is assessed every **Monday and Friday at 09:00** local time:
+To build a track record that isn't limited to the stocks you happen to look at, a fixed list of 30 stocks across sectors (`batch.UNIVERSE`) is assessed every **Monday and Friday**. The work is spread out so the Mac is never busy for long: launchd starts the job every hour from 09:00 to 20:00 on those days, and each start assesses the **next 4 stocks** of the day's run, pausing 30 seconds between stocks, then exits. The 30 stocks are done by about 16:00; the later hours catch up on any hour missed while the Mac was asleep. Days, hours, chunk size and pause are set in `batch.py` (`DAYS`, `HOURS`, `CHUNK`, `PAUSE`); run `./schedule.sh install` again after changing them.
 
-- **On the local model** (Ollama, `qwen3.5:9b` by default): free and without rate limits. It takes about a minute per stock on an M2 MacBook, so a run of 30 takes about 35 minutes. Thinking is off by default (`OLLAMA_THINK`); with it on, a stock took 6–7 minutes. Gemini thinks at its "low" level, so a comparison is between the models as configured, not just the weights.
-- **In the last week of the month**, Gemini also assesses each stock from the **same context**, so the Track Record can compare the two models on identical inputs. Calls are paced to 12 a minute for Gemini's free tier.
+- **On the local model** (Ollama, `qwen3.5:9b` by default): free and without rate limits. It takes about a minute per stock on an M2 MacBook, so a chunk of 4 takes about 5–6 minutes. Thinking is off by default (`OLLAMA_THINK`); with it on, a stock took 6–7 minutes. Gemini thinks at its "low" level, so a comparison is between the models as configured, not just the weights.
+- **In the last week of the month** (decided when the day's run starts, so every chunk matches), Gemini also assesses each stock from the **same context**, so the Track Record can compare the two models on identical inputs. Calls are paced to 12 a minute for Gemini's free tier.
 - Scheduled calls leave out your position and news sentiment, so each rests on the same kinds of data every run. They're saved to your history with `source: "scheduled"` and the run they belong to, and their full inputs go to `assessment_inputs_<user>.jsonl` as usual. Evaluation (the second look) still runs only when you ask for it, on Gemini.
-- Each run's summary (calls saved, failures, anything skipped) is appended to `data/scheduled_runs.json`; output goes to `data/logs/scheduled.log`. Its progress is kept in `data/scheduled_status.json` while it runs.
-- **Seeing a run:** while one is going, the sidebar shows *Scheduled run 12/30* with the stock being assessed (on phones, a small counter at the top right), on every page. The Track Record's **Scheduled runs** card shows a progress bar, the next run and whether it's a comparison week, a warning if Ollama isn't running or the job isn't installed, and the last 10 runs (hover a row for its errors). Admins can start a run with **Run now**. The status refreshes every 10 seconds during a run and every minute otherwise, and the signals reload when a run finishes.
+- Each day's run has one entry in `data/scheduled_runs.json` (calls saved, failures, anything skipped), updated after every stock; output goes to `data/logs/scheduled.log`. Its progress is kept in `data/scheduled_status.json` while it runs.
+- **Seeing a run:** while a chunk is being assessed, the sidebar shows *Scheduled run 12/30* with the stock being assessed (on phones, a small counter at the top right), on every page. The Track Record's **Scheduled runs** card shows the day's progress and, between chunks, when the next one starts; otherwise the next run and whether it's a comparison week. It warns if Ollama isn't running, if the job isn't installed, or if a day's slots ran out before its run finished, and lists the last 10 runs (hover a row for its errors). Admins can assess the next chunk straight away with **Run next 4**. The status refreshes every 10 seconds during a run and every minute otherwise, and the signals reload when a run finishes.
 - If a stock's data can't be fetched (usually Yahoo rate-limiting), the run waits out the app's 5-minute Yahoo cooldown and tries again, up to 3 times, before counting it as failed.
-- If Ollama isn't running, the local calls are skipped and the summary says why. Gemini is never used in place of it.
+- If Ollama isn't running, that hour's chunk is skipped and the run's entry says why; its stocks wait for the next hour. Gemini is never used in place of it.
 
 ```bash
-./schedule.sh install     # Mondays and Fridays at 09:00 (SCHEDULE_USER=admin by default)
+./schedule.sh install     # hourly on Mondays and Fridays, 09:00–20:00 (SCHEDULE_USER=admin by default)
 ./schedule.sh status      # whether it's loaded, and the end of the log
-./schedule.sh run         # run now
+./schedule.sh run         # assess the next chunk now
+PYTHONPATH=. python -m backend.batch --chunk 0   # the rest of today's run in one go
 ./schedule.sh uninstall
 PYTHONPATH=. python -m backend.batch --mode compare --symbols AAPL KO   # a one-off run by hand
 ```
 
-launchd starts a run missed while the Mac was asleep when it wakes; a run missed while it was shut down is skipped. The Ollama app must be running (it starts at login by default). Local-model calls appear on API Usage at no cost and don't count towards the Gemini rate meters.
+launchd starts an hour missed while the Mac was asleep when it wakes; hours missed while it was shut down are skipped, and if the day's slots run out first, the run stays incomplete. The Ollama app must be running (it starts at login by default). Local-model calls appear on API Usage at no cost and don't count towards the Gemini rate meters.
 
 That measures error-catching, not whether the calls make money. The Track Record's **Is the second look right?** card measures that.
 

@@ -501,7 +501,8 @@ export type Usage = {
   recent: { timestamp: string; model: string; operation: string; symbol: string | null; total_tokens: number; cost_usd: number; success: boolean; error_message: string | null }[];
 };
 
-/** Progress of the current or last scheduled run. */
+/** Progress of the current or last scheduled run. A day's run is assessed a chunk an hour: "running"
+ * while a chunk is going, "waiting" between chunks, "incomplete" if the day's slots ran out. */
 export type RunStatus = {
   user: string;
   run: string;
@@ -513,7 +514,9 @@ export type RunStatus = {
   ok: number;
   failed: number;
   finished: string | null;
-  state: "running" | "finished" | "interrupted";
+  /** When the next chunk starts, while waiting. */
+  next_chunk?: string;
+  state: "running" | "waiting" | "finished" | "incomplete";
 };
 
 export type ScheduledRuns = {
@@ -522,6 +525,9 @@ export type ScheduledRuns = {
   /** Whether the next run is in the last week of the month, so Gemini runs too. */
   next_compare: boolean;
   model: string;
+  /** Stocks per hourly chunk, and the first and last hour chunks start. */
+  chunk: number;
+  hours: [number, number];
   /** Why the local model can't run right now, or null when it can. */
   local_problem: string | null;
   status: RunStatus | null;
@@ -531,6 +537,8 @@ export type ScheduledRuns = {
     finished: string | null;
     providers: ("local" | "gemini")[];
     skipped: string[];
+    /** Stocks in the run; null for runs from before chunking. */
+    total: number | null;
     ok: number;
     failed: number;
     errors: { symbol: string; provider: string | null; error: string }[];
