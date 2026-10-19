@@ -277,6 +277,15 @@ Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the 
 
 **Is the second look right?** appears once any scored call has an evaluation. It groups scored BUY and SELL calls (all symbols, ignoring the filters) by evaluation verdict, with each group's win rate and average return vs the S&P 500 at the selected checkpoint; if the evaluation works, *weakened* and *contradicted* calls should do worse than *stands*. It also gives the Brier score (mean of (confidence/10 − outcome)², lower is better) for the original and the adjusted confidence on the same calls: if lowering confidence was warranted, the adjusted score is lower. Each score is also shown as skill vs a coin flip (1 − score ÷ 0.25, where 0.25 is the score of always saying 50%). Below 30 evaluated calls it says the numbers are anecdotes. Evaluation is optional, so evaluated calls are the ones you chose to check; compare groups with that in mind.
 
+## Chat
+
+`backend/chat.py`, `web/src/components/shell/chat.tsx`
+
+- The round button at the bottom right of every page opens the assistant. Each question is sent with the page's route, title, selected symbol and visible text (up to 12,000 characters), so it can answer about what you're looking at. Charts reach it only as their labels.
+- When the page doesn't have the answer, the model calls the app's analyses as tools: technicals (always on 1 year), fundamentals, forecast models, news sentiment (only when you ask about news, since it spends SERPapi credits), your portfolio, and past AI assessments. Each lookup shows as a chip above the answer. After 4 rounds of lookups it must answer with what it has.
+- **Qwen** (the local model from `OLLAMA_MODEL`) is the default; switch to **Gemini** in the panel's header. The choice is remembered in the browser. Thinking is off for chat, so local replies take seconds to a minute rather than minutes.
+- The conversation lasts until you reload or press **New chat**; it isn't saved. Calls are logged on the API Usage page as operation `chat`.
+
 ## API Usage
 
 `backend/usage.py`

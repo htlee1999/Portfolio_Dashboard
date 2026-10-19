@@ -11,6 +11,7 @@ import { useSession } from "@/lib/session";
 import { spring } from "@/lib/motion";
 import { cn } from "../ui/cn";
 import { Spinner } from "../ui/feedback";
+import { ChatLauncher } from "./chat";
 import { NAV, RESEARCH, SETTINGS, TABS, isActive, type NavItem } from "./nav";
 
 /* Compact title shown in the toolbar once the page's large title scrolls away. */
@@ -200,6 +201,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <TabBar />
+      <ChatLauncher />
     </TitleContext.Provider>
   );
 }

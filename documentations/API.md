@@ -123,6 +123,13 @@ The assessment runs in two steps, so you can review the inputs before spending a
 
 **`POST /api/reports/assessment.pdf`** takes `{context, ai, evaluation?}` and returns a PDF download.
 
+## Chat
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/chat/providers` | `{default: "local", local: {model, problem}, gemini: {model, problem}}`. `problem` is `null` when that model can answer, otherwise why not |
+| POST | `/api/chat` | `{provider: "local" \| "gemini", messages: [{role: "user" \| "assistant", content}], page: {path, title, symbol, text}}`. Streams NDJSON, one event per line: `{"type": "tool", "name", "args"}` when an analysis runs, `{"type": "text", "text"}` for answer text, then `{"type": "done", "model"}` or `{"type": "error", "message"}` |
+
 ## Track record and usage
 
 | Method | Path | Notes |
