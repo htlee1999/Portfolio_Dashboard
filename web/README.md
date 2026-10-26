@@ -6,4 +6,5 @@ Next.js frontend for the Portfolio Dashboard. See the repository root README for
 - `src/lib/motion.ts`: spring presets used by every animation
 - `src/components/ui`: primitives (buttons, segmented control, sheets, switches, sliders)
 - `src/components/charts`: Recharts wrappers that follow one set of chart rules (validated categorical palette, single y-axis, hairline grids)
-- `src/app/(app)/*`: pages; `src/app/(auth)/*`: sign in and sign up
+- `src/components/shell`: app shell (sidebar, tab bar, toolbar), research page scaffolding and the chat panel
+- `src/app/(app)/*`: pages; `src/app/(auth)/*`: sign in, sign up, forgot and reset password

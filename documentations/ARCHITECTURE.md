@@ -6,7 +6,8 @@ Portfolio Dashboard has two processes: a **Next.js web app** that renders the in
  Browser ──► Next.js (:3000) ──/api/* rewrite──► FastAPI (:8000) ──► Finnhub / Yahoo Finance
    ▲            │                                     │          ──► SERPapi (news)
    │            └─ src/proxy.ts: no session cookie    │          ──► Google Gemini
-   │               → redirect to /login               ▼
+   │               → redirect to /login               │          ──► Ollama (local model)
+   │                                                  ▼
    └──────── pd_session cookie (signed) ──────── data/*.json
 ```
 
@@ -29,27 +30,33 @@ The backend is a Python package run from the repository root as `uvicorn backend
 | `main.py` | Loads `.env`, creates the app and mounts the routers |
 | `routes/auth.py` | Sign in, sign up, sign out, current user, change password |
 | `routes/portfolio.py` | Settings, holdings CRUD, CSV import/export, backups, metrics, performance |
-| `routes/analysis.py` | Technicals, fundamentals, predictions, sentiment, assessment, PDF, track record |
+| `routes/analysis.py` | Technicals and the signal back-test, fundamentals, predictions, sentiment, assessment, evaluation, PDF, scheduled runs, track record |
+| `routes/chat.py` | Chat providers and the streaming chat endpoint |
 | `routes/admin.py` | Usage stats, data files, raw JSON editor, user management |
 | `auth.py` | User store (`data/users.json`), password hashing, linked emails, reset tokens, session cookies, `current_user` / `admin_user` dependencies |
 | `mailer.py` | Sends password-reset emails over SMTP, falling back to the console |
-| `manage.py` | Command-line account recovery: list users, set email, print a reset link |
+| `manage.py` | Command-line account recovery: list users, set email, print a reset link, test email |
+| `ratelimit.py` | In-memory sliding windows for failed password checks, sign-ups and reset requests |
 | `storage.py` | All file I/O. Writes are atomic (temp file + rename). |
 | `market.py` | Quotes, OHLCV history, company info, statements and FX rates, with caching and the Yahoo circuit breaker |
 | `portfolio.py` | Valuation in a base currency, rebased performance series, risk and sector breakdowns |
-| `technical.py` | Indicator series and the current signal state |
-| `fundamentals.py` | Ratio groups, statements, analyst targets |
+| `technical.py` | Indicator series, the current signal state, and a 5-year back-test of each signal on the stock |
+| `fundamentals.py` | Ratio groups, statements, analyst targets; converts market cap to the reporting currency for valuation ratios |
+| `fundamental_history.py` | Ratios at each past fiscal year-end, and where today's trailing figure sits against their median |
+| `quality.py` | Piotroski F-score, accruals, asset growth, share-count change, Altman Z″, interest coverage, net debt/EBITDA, earnings surprises and estimate revisions |
 | `predictive.py` | Next-session return models (ridge, gradient boosting, random forest, optional Chronos-Bolt), walk-forward tested against a no-change forecast |
 | `volatility.py` | GARCH(1,1) with Student-t errors for the next-session range |
 | `sentiment.py` | SERPapi news fetch, headline filtering (window, duplicates, routine filings, firm-specific), financial-news model scoring with VADER fallback |
 | `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini or the local model (Ollama) with a response schema and records the result and its inputs |
 | `batch.py` | Scheduled assessments over a fixed stock list: local model on Mondays and Fridays, plus Gemini on the same context in the last week of the month |
+| `chat.py` | Page-aware chat: the page's text goes in the system prompt, and the analyses are offered as tools; streams NDJSON from Ollama or Gemini |
 | `evaluation.py` | Second look at an assessment: picks skills by rule, computes their facts and rule screens, one Gemini review, enforces that it can only flag and lower confidence |
 | `skills/*/SKILL.md` | The evaluation's skills: instructions, when each applies, evidence rating and sources (Agent Skills format) |
 | `reports.py` | Renders an assessment as a PDF (reportlab) |
 | `track_record.py` | Scores past recommendations against the S&P 500 at fixed checkpoints, and compares them with simple rules and between models |
-| `usage.py` | Appends to and summarizes `data/gemini_usage.json` |
-| `utils.py` | `clean()`, `ttl_cache`, `series_points()` |
+| `evaluation_benchmark.py` | On-demand benchmark of the evaluation with planted errors (live Gemini calls) |
+| `usage.py` | Appends to and summarizes `data/gemini_usage.json` (Gemini and local-model calls) |
+| `utils.py` | `clean()`, `num()`, `ttl_cache`, `series_points()` |
 
 ### Market data and caching
 
@@ -92,9 +99,11 @@ src/
     (app)/layout.tsx     SessionProvider + AppShell; renders nothing until /auth/me resolves
     (app)/<page>/page.tsx one folder per screen
   components/
-    shell/               AppShell (sidebar, tab bar, toolbar), PageHeader, SymbolPicker, CurrencyMenu
+    shell/               AppShell (sidebar, tab bar, toolbar, scheduled-run indicator), nav, PageHeader,
+                         ResearchPage (symbol in the URL, research tabs), SymbolPicker, CurrencyMenu, Chat
     ui/                  Button, Card/List/ListRow/Badge, Segmented, TextField, Select, Switch, Slider,
-                         Sheet, Disclosure, Banner, Spinner, Skeleton, EmptyState, Stat, Delta, AnimatedNumber, Toast
+                         Sheet, Disclosure, Banner, Spinner, Skeleton, EmptyState, Stat, Delta, AnimatedNumber, Toast,
+                         EvidenceTag/EvidenceGuide (method & evidence panels)
     charts/charts.tsx    TimeSeries, SignedBars, HBars, Donut, ScoreRadar, Legend
   lib/
     api.ts               fetch wrapper, download(), useApi() (SWR)
@@ -104,6 +113,9 @@ src/
     format.ts            money, percent, compact, dates
     motion.ts            spring presets
     portfolio.ts         currencies, lot → position aggregation
+    media.ts             media-query hook for phone layouts
+    scheduled.ts         scheduled-run status polling
+    evidence.ts, *-evidence.ts  evidence ratings, research summaries and sources for the Method & evidence panels
     types.ts             response types mirroring the API
   proxy.ts               optimistic auth redirect
 ```
@@ -115,12 +127,14 @@ src/
 - **The research symbol** lives in the URL (`?symbol=NVDA`), so research pages are linkable. The last one used is remembered in `localStorage`.
 - **Theme preference** is stored in `localStorage`. An inline script sets `data-theme` before first paint, so there's no flash of the wrong appearance.
 - **Results from on-demand operations** are page state and aren't cached: forecast training, sentiment, assessment. These cost time or API credits, so they only run when you press the button.
+- **Chat** keeps its conversation in component state (cleared on reload or **New chat**); the chosen provider is stored in `localStorage`. Each request sends the visible text of `main#main`, so the assistant sees what the page shows.
 
 **Next.js 16 notes**
 
 - Middleware is now called **Proxy** (`src/proxy.ts`).
 - Pages that read `useSearchParams` are wrapped in `<Suspense>` (`ResearchPage`).
 - External rewrites time out after 30s by default, so `experimental.proxyTimeout` is raised to 180s for Gemini and model training.
+- Chat replies stream through the same rewrite as `application/x-ndjson`; the API sets `X-Accel-Buffering: no` so a proxy in between doesn't hold the stream back.
 
 ## Concurrency and limits
 

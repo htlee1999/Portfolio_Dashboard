@@ -8,6 +8,7 @@ data/
 ├── settings.json                      # app settings (shared)
 ├── gemini_usage.json                  # AI call log, Gemini and local model (shared)
 ├── scheduled_runs.json                # summary of each scheduled run (last 200)
+├── scheduled_status.json              # progress of the current or last scheduled run
 ├── portfolio_<username>.json          # holdings, one file per user
 ├── recommendation_history_<username>.json   # AI assessments, one file per user
 ├── assessment_inputs_<username>.jsonl       # each assessment's full prompt and context, one line per call
@@ -102,7 +103,7 @@ Records written by the original Streamlit version have no `steps` or `position_a
 
 ## `gemini_usage.json`
 
-An array with one record per Gemini call:
+An array with one record per AI call, on Gemini or the local model:
 
 ```json
 {
@@ -118,6 +119,8 @@ An array with one record per Gemini call:
   "error_message": null
 }
 ```
+
+`operation` is `investment_assessment`, `assessment_evaluation` or `chat`. `symbol` is null for a chat asked with no symbol selected. Calls to models not in `usage.PRICING`, such as the local model, have a `cost_usd` of 0.
 
 ## Backups
 

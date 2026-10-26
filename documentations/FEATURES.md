@@ -11,6 +11,7 @@ What each screen shows, how its numbers are calculated, and where the limits are
 - [Sentiment](#sentiment)
 - [AI Assessment](#ai-assessment)
 - [Track Record](#track-record)
+- [Chat](#chat)
 - [API Usage](#api-usage)
 - [Settings](#settings)
 
@@ -55,31 +56,60 @@ Each row is one purchase **lot** (symbol, shares, price, date, currency).
 
 `technical_indicators.py → TechnicalAnalysis`, `backend/technical.py`
 
+Indicators are computed on at least 2 years of history (5 years for the 2Y and 5Y periods), so the 200-day average, 12-1 momentum and 52-week high are defined, then trimmed to the selected period.
+
+**Short-term momentum and trend**
+
 | Indicator | Calculation | Signal shown |
 |---|---|---|
-| RSI (default 14) | 100 − 100 / (1 + RS), where RS is the exponentially smoothed average gain ÷ average loss | > 70 overbought, < 30 oversold, otherwise neutral |
+| RSI (default 14) | 100 − 100 / (1 + RS), where RS is Wilder's smoothed average gain ÷ average loss | > 70 overbought, < 30 oversold, otherwise neutral |
 | MACD (12, 26, 9) | EMA(fast) − EMA(slow); signal line = EMA(9) of MACD; histogram = MACD − signal | MACD above signal = bullish, otherwise bearish |
 | Bollinger Bands (20, 2σ) | SMA(20) ± k × rolling standard deviation; %B = (price − lower) ÷ (upper − lower) | %B > 1 above upper band, < 0 below lower band, otherwise within |
-| Moving averages | SMA 20, SMA 50 (EMA 20 is in the export) | Price above both = uptrend, below both = downtrend, otherwise mixed |
+| Trend | SMA 20 and SMA 50 (EMA 20 is in the export) | Price above both = uptrend, below both = downtrend, otherwise mixed |
 | OBV | Cumulative volume, added on up days and subtracted on down days; EMA(10) overlay | OBV above its EMA = rising |
 
-- **Indicator settings:** the sliders change the periods, and the charts refetch after you stop dragging (350 ms debounce). The MACD signal period is fixed at 9.
-- **Export Indicator Data** downloads OHLCV plus every indicator as CSV.
+**Long-term trend, strength and volatility**
+
+| Indicator | Calculation | Signal shown |
+|---|---|---|
+| 12-1 momentum | Return over the past 12 months, skipping the latest month (252 and 21 trading days) | Positive or negative |
+| 52-week high | Distance of the close from the highest high of the past 252 days | Within 5% near, 25% or more below far, otherwise below |
+| Long-term trend | SMA 200, and SMA 50 against SMA 200 | Price above or below SMA 200; SMA 50 > 200 (golden cross) or < 200 |
+| ADX (14) | Wilder's average directional index, with +DI and −DI | 25 or more a strong trend (up or down by +DI vs −DI), below 20 ranging, otherwise developing |
+| ATR (14) | Wilder's average true range, also as % of price | The average daily range |
+
+A card shows "Needs more history" when there aren't enough days to compute it.
+
+- **Price chart overlay:** Bollinger Bands, or the 20, 50 and 200-day averages.
+- **Indicator settings:** the sliders change the RSI, MACD and Bollinger periods, and the charts refetch after you stop dragging (350 ms debounce). The MACD signal period, ADX and ATR are fixed at 9, 14 and 14.
 - **Signal cards** reflect the current settings. If you change the RSI period, the RSI card uses the new period too.
+- **Signal track record** (`technical.backtest`) tests 13 signals (RSI below 30 / above 70, MACD crosses, closes outside the bands, crosses of the 200-day average, golden and death crosses, new 52-week highs, ADX trend starts) on this stock over the past 5 years. Each signal counts on the day it first triggers, then not again for 10 trading days. For 5, 20 and 60 trading days afterwards it shows how often the stock moved the expected way and its average return, against the baseline of all days. *Worked* or *Failed* means the hit rate beat or trailed the baseline in a one-sided z-test at 95%; with fewer than 8 occurrences the verdict is *Too few*. Holding periods overlap, so this is a screen, not proof.
+- **Indicator guide & evidence** rates the research behind each indicator and cites sources (`web/src/lib/indicator-evidence.ts`).
+- **Export Indicator Data** downloads OHLCV plus every indicator as CSV.
 
 ## Fundamentals
 
-`backend/fundamentals.py`. All data comes from Yahoo Finance via yfinance.
+`backend/fundamentals.py`, `backend/fundamental_history.py`, `backend/quality.py`. All data comes from Yahoo Finance via yfinance.
 
-- **Ratio groups:**
-  - Valuation: P/E, Forward P/E, PEG, P/B, P/S, EV/Revenue, EV/EBITDA
+- **Headline:** price with its 52-week range, market cap and enterprise value, P/E (or "loss-making") and dividend yield with payout ratio.
+- **Ratio groups** (trailing 12 months):
+  - Valuation: P/E, Forward P/E, PEG, P/B, P/S, EV/Revenue, EV/EBITDA, FCF yield
   - Profitability: ROE, ROA, gross, operating and profit margins
   - Liquidity: current and quick ratios
   - Leverage: Debt/Equity, Beta
-  - Growth: revenue and earnings growth
+  - Growth: revenue growth last fiscal year, and revenue and earnings growth for the latest quarter year on year
 - **Units:** margins and growth arrive as fractions and are displayed as percentages. Yahoo reports Debt/Equity as a percentage (150 = 1.5×), and the app displays it as a multiple. Dividend yield is already a percentage.
+- **Edge cases:** multiples with a negative denominator show "n/m" instead of a meaningless number. ROE is flagged as inflated when equity is under a fifth of assets (ROE more than 5× ROA). When a stock trades in a different currency from its accounts (for example TSM: USD price, TWD statements), the market cap is converted before computing P/B, P/S, EV ratios and FCF yield.
+- **Banks and insurers** skip ratios that don't describe them (EV ratios, gross margin, liquidity, Debt/Equity, FCF yield, and the quality and risk measures below); **REITs** get a note that P/E matters less than price/book, yield and gearing.
+- **Against its own history:** each measure at the last 4 fiscal year-ends against today's trailing figure. Past market caps are today's scaled by the price change and share count, so past exchange-rate moves are ignored. Today is *cheaper* / *pricier* (valuation) or *better* / *worse* (the rest) when it is 10% or more from the median of past years, otherwise *in line*. This reads a company against itself rather than one fixed threshold for every company.
+- **Quality** (latest fiscal year against the one before):
+  - **Piotroski F-score:** 9 pass/fail tests on profitability, funding and efficiency. Shown when at least 6 can be tested; *strong* within one of a full score, *weak* near zero (scaled when tests are missing).
+  - Gross profit / assets (above 30% high, below 10% low), accruals / assets (net income − operating cash flow; negative means profits are backed by cash), asset growth (above 20% has preceded weak returns) and change in share count (negative means buybacks, above 2% dilution; skipped across a split).
+- **Financial risk:** Altman Z″ for non-manufacturers (above 2.6 safe, below 1.1 distress; not for REITs, and buybacks can understate it), interest coverage (below 1.5× strained, above 5× comfortable) and net debt / EBITDA (above 3× high; negative is net cash).
+- **Earnings:** reported EPS against estimates for the last 4 quarters, estimate changes over 30 and 90 days with up and down revisions, and the next report date.
 - **Analyst view:** consensus key and score (1 = strong buy … 5 = sell), mean, low and high targets, and upside to the mean target. The range bar marks the current price and the mean.
-- **Statements:** up to 5 fiscal years of selected rows from the income statement, balance sheet and cash flow, shown in compact notation.
+- **Statements:** up to 5 fiscal years of selected rows from the income statement, balance sheet and cash flow, with year-on-year growth and CAGR, shown in compact notation.
+- **Metric guide & evidence** rates the research behind each measure and cites sources (`web/src/lib/fundamental-evidence.ts`).
 
 ## Forecast
 
@@ -166,8 +196,9 @@ These are rough rules of thumb for visual comparison, without sector data, so a 
 
 **Step 2: Generate Assessment** sends Gemini (`gemini-3.5-flash-lite`) a compact prompt:
 
-- Technical readings, with the date of the bar the price comes from
-- Key ratios, with margins and growth correctly as percentages
+- Technical readings (RSI, MACD, Bollinger %B, the 50 and 200-day averages, OBV, 12-1 momentum, distance from the 52-week high, ADX and ATR), with the date of the bar the price comes from
+- Key ratios, with margins and growth correctly as percentages, and the bank or REIT note where it applies
+- Ratios against the company's own fiscal-year history, the Piotroski F-score, the quality and financial-risk measures, the earnings beat record, the 90-day change in this year's EPS estimate and the next report date
 - The analyst consensus and target
 - Each forecast model's skill against no change, its significance and direction accuracy, and the GARCH range. When no model beats no change, the prompt says to treat the forecasts as no signal
 - Net tone with its interval and verdict, the price change over the window, the share of headlines reporting price moves, a note that tone is context rather than a forecast, and the 5 strongest-toned headlines
@@ -290,10 +321,10 @@ Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the 
 
 `backend/usage.py`
 
-- Every Gemini call is logged, failures included. Each record holds the timestamp, model, operation, symbol, input and output tokens, estimated cost and any error.
-- **Token counts** come from Gemini's `usage_metadata`. Older records (and failed calls) use an estimate of about 4 characters per token.
-- **Cost** is estimated from `PRICING` (USD per 1K input and output tokens). Update it when Google changes prices.
-- **Rate-limit meters** show requests in the last minute and hour, and tokens used today, against `RATE_LIMITS` (Gemini free-tier defaults). Adjust them to your plan.
+- Every AI call is logged, failures included: assessments and evaluations, scheduled runs and chat, on Gemini or the local model. Each record holds the timestamp, model, operation, symbol, input and output tokens, estimated cost and any error.
+- **Token counts** come from the response (Gemini's `usage_metadata`, Ollama's eval counts). Older records and failed calls use an estimate of about 4 characters per token. Gemini's thinking tokens count as output.
+- **Cost** is estimated from `PRICING` (USD per 1K input and output tokens). Models not listed there, such as the local model, cost nothing. Update it when Google changes prices.
+- **Rate-limit meters** show Gemini requests in the last minute and hour, and Gemini tokens used today, against `RATE_LIMITS` (Gemini free-tier defaults). Local-model calls don't count. Adjust them to your plan.
 - Export the selected range as CSV. Admins can delete records older than 90 days.
 
 ## Settings

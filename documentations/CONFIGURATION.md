@@ -10,9 +10,9 @@ The API reads `.env` from the repository root at startup (`python-dotenv`). Copy
 | `GEMINI_API_KEY` | none | Enables AI Assessment |
 | `SERP_API_KEY` | none | Enables Sentiment and the news input to AI Assessment |
 | `SENTIMENT_MODEL` | `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis` | Hugging Face model that scores headlines. Any model whose labels are positive, neutral and negative works. Needs `torch` and `transformers` |
-| `OLLAMA_URL` | `http://localhost:11434` | Local Ollama server for scheduled assessments |
-| `OLLAMA_MODEL` | `qwen3.5:9b` | Local model for scheduled assessments. Pull it first: `ollama pull qwen3.5:9b` (7.6 GB; about 7 GB of memory while running) |
-| `OLLAMA_THINK` | `0` | `1` lets the local model think before answering. On an M2 that took 6–7 minutes a stock instead of about 1 |
+| `OLLAMA_URL` | `http://localhost:11434` | Local Ollama server for scheduled assessments and chat |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Local model for scheduled assessments and chat (where it's the default). Pull it first: `ollama pull qwen3.5:9b` (7.6 GB; about 7 GB of memory while running) |
+| `OLLAMA_THINK` | `0` | `1` lets the local model think before answering in scheduled assessments. On an M2 that took 6–7 minutes a stock instead of about 1. Chat never thinks |
 | `CHRONOS_MODEL` | `amazon/chronos-bolt-tiny` | Pretrained forecaster for the optional Chronos-Bolt model on Forecast |
 | `SESSION_SECRET` | auto-generated | Key that signs session cookies, at least 32 characters. If unset, a random key is created in `data/.session_secret` on first run. **Required** on Vercel (or with `REQUIRE_SESSION_SECRET=1`) |
 | `COOKIE_SECURE` | auto | Cookies are `Secure` whenever the request arrived over HTTPS. Set `1` to force on, `0` to force off |
@@ -43,14 +43,20 @@ The free tier covers real-time quotes for US-listed symbols. Foreign listings (`
 1. Go to [aistudio.google.com](https://aistudio.google.com/), sign in, and choose **Get API key → Create API key**.
 2. Add `GEMINI_API_KEY=…` to `.env`.
 
-The model is `gemini-3.5-flash-lite` (`backend/assessment.py → MODEL`). Each assessment uses roughly 1,500–4,000 tokens. Free-tier limits and the cost estimates on API Usage are set in `backend/usage.py` (`RATE_LIMITS`, `PRICING`); update them if Google changes its pricing or you're on a paid plan.
+The model is `gemini-3.5-flash-lite` (`backend/assessment.py → MODEL`), also used by the evaluation and by chat when you pick Gemini. An assessment's prompt is about 4,000 tokens, plus the response. Free-tier limits and the cost estimates on API Usage are set in `backend/usage.py` (`RATE_LIMITS`, `PRICING`); update them if Google changes its pricing or you're on a paid plan.
 
 **SERPapi**
 1. Sign up at [serpapi.com](https://serpapi.com/). The free plan includes a monthly allowance of searches (250 at the time of writing).
 2. Add `SERP_API_KEY=…` to `.env`.
 3. Run `python3 setup_sentiment.py` to install the NLTK data, load the financial-news model and test the key.
 
-A Sentiment run uses 1 search per source (2 with "Both"; Google Finance is skipped, and not charged, for exchanges it doesn't cover). An AI Assessment with sentiment on uses 2. Checking your quota uses none.
+A Sentiment run uses 1 search per source (2 with "Both"; Google Finance is skipped, and not charged, for exchanges it doesn't cover). An AI Assessment with sentiment on uses 2, and so does a chat question about news. Checking your quota uses none.
+
+**Ollama** (optional local model)
+1. Install [Ollama](https://ollama.com) and open the app (it starts at login by default).
+2. Run `ollama pull qwen3.5:9b` (7.6 GB), or pull another model and set `OLLAMA_MODEL`.
+
+The local model is the chat's default and runs the scheduled assessments (see [Features → Scheduled assessments](FEATURES.md#scheduled-assessments)). Without it, chat can still use Gemini.
 
 ## Accounts
 
@@ -64,7 +70,7 @@ A Sentiment run uses 1 search per source (2 with "Both"; Google Finance is skipp
   | `user` | Manage their own portfolio and history |
   | `admin` | Everything a user can, plus manage users, see every file in `data/`, and delete old usage records |
 
-- **Data separation:** each user has their own holdings and AI history. The base currency setting and the Gemini usage log are shared by everyone.
+- **Data separation:** each user has their own holdings and AI history. The base currency setting and the AI usage log are shared by everyone.
 - **Email:** each account can have one linked email (**Settings → Email**, which asks for your current password). Admins can add one when creating a user. An email can belong to only one account.
 
 ## Password reset
