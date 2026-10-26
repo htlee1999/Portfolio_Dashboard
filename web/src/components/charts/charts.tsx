@@ -101,6 +101,7 @@ export function TimeSeries({
   band,
   refLines = [],
   refAreas = [],
+  xAreas = [],
   legend = true,
   ariaLabel,
 }: {
@@ -112,6 +113,8 @@ export function TimeSeries({
   band?: { lower: string; upper: string; color: string };
   refLines?: { y: number; label?: string }[];
   refAreas?: { y1: number; y2: number }[];
+  /** Shaded date ranges behind the lines; x1/x2 must be dates present in the data. */
+  xAreas?: { x1: string; x2: string; color: string }[];
   legend?: boolean;
   ariaLabel: string;
 }) {
@@ -144,6 +147,9 @@ export function TimeSeries({
             />
             {refAreas.map((a, i) => (
               <ReferenceArea key={i} y1={a.y1} y2={a.y2} fill="var(--fill)" fillOpacity={0.6} stroke="none" />
+            ))}
+            {xAreas.map((a, i) => (
+              <ReferenceArea key={`x${i}`} x1={a.x1} x2={a.x2} fill={a.color} fillOpacity={0.14} stroke="none" ifOverflow="hidden" />
             ))}
             {refLines.map((r) => (
               <ReferenceLine

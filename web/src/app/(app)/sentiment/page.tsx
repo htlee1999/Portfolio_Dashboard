@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { SignedBars } from "@/components/charts/charts";
 import { PageHeader, ResearchTabs } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { ResearchPage } from "@/components/shell/research-page";
 import { SymbolPicker, useSymbol } from "@/components/shell/symbol-picker";
 import { Button } from "@/components/ui/button";
@@ -95,6 +96,7 @@ function SentimentView() {
         subtitle="The tone of recent firm-specific headlines, read by a model trained on financial news"
         actions={<SymbolPicker symbol={symbol} onChange={(s) => { setSymbol(s); setResult(null); }} />}
       />
+      <PageGuide page="sentiment" />
 
       {isLoading ? (
         <LoadingBlock />

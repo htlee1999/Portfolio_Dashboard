@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import { MUTED, SERIES, TimeSeries } from "@/components/charts/charts";
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Segmented, Select } from "@/components/ui/controls";
@@ -133,6 +134,7 @@ export default function TrackRecordPage() {
         subtitle="How past AI recommendations did against the S&P 500"
         actions={<Segmented label="Score at" options={HORIZONS} value={horizon} onChange={setHorizon} />}
       />
+      <PageGuide page="trackRecord" />
 
       {error && <Banner tone="error" title="Couldn't load history">{error.message}</Banner>}
 

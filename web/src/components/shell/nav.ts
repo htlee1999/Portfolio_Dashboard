@@ -7,6 +7,7 @@ import {
   Gauge,
   History,
   LayoutGrid,
+  Orbit,
   Newspaper,
   ScrollText,
   Settings,
@@ -38,6 +39,7 @@ export const NAV: { heading?: string; items: NavItem[] }[] = [
     heading: "Insights",
     items: [
       { href: "/track-record", label: "Track Record", icon: History },
+      { href: "/retrograde", label: "Retrograde", icon: Orbit },
       { href: "/usage", label: "API Usage", icon: Gauge },
     ],
   },

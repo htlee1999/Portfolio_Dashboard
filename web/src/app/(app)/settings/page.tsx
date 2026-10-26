@@ -5,6 +5,7 @@ import { useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, List, ListRow, Section } from "@/components/ui/card";
 import { Segmented, Select, TextField } from "@/components/ui/controls";
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
+      <PageGuide page="settings" />
       <div className="max-w-3xl space-y-8">
         {/* Destinations that live in the sidebar on larger screens */}
         <Section className="lg:hidden">

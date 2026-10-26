@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { ScoreRadar } from "@/components/charts/charts";
 import { PageHeader, ResearchTabs } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { ResearchPage } from "@/components/shell/research-page";
 import { SymbolPicker, useSymbol } from "@/components/shell/symbol-picker";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,7 @@ function AssessmentView() {
         subtitle="Technicals, fundamentals, sentiment and ML forecasts, weighed by Gemini"
         actions={<SymbolPicker symbol={symbol} onChange={(s) => { setSymbol(s); setCtx(null); setAi(null); setEvaluation(null); }} />}
       />
+      <PageGuide page="assessment" />
 
       <div className="space-y-5">
         <Card>

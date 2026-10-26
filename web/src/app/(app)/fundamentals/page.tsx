@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { SERIES } from "@/components/charts/charts";
 import { PageHeader, ResearchTabs } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { ResearchPage } from "@/components/shell/research-page";
 import { SymbolPicker, useSymbol } from "@/components/shell/symbol-picker";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
@@ -53,6 +54,7 @@ function FundamentalsView() {
     <>
       <ResearchTabs />
       <PageHeader title="Fundamentals" eyebrow="Research" actions={<SymbolPicker symbol={symbol} onChange={setSymbol} />} />
+      <PageGuide page="fundamentals" />
 
       {error && <Banner tone="error" title={`Couldn't load fundamentals for ${symbol}`}>{error.message}</Banner>}
 

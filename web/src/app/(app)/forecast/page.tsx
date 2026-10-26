@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { HBars, Legend, MUTED, SERIES, TimeSeries } from "@/components/charts/charts";
 import { PageHeader, ResearchTabs } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { ResearchPage } from "@/components/shell/research-page";
 import { SymbolPicker, useSymbol } from "@/components/shell/symbol-picker";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ function ForecastView() {
           </>
         }
       />
+      <PageGuide page="forecast" />
 
       <div className="space-y-5">
         <Card>

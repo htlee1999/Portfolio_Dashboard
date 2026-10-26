@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { HBars, SERIES, TimeSeries } from "@/components/charts/charts";
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/controls";
@@ -50,6 +51,7 @@ export default function UsagePage() {
         subtitle="Gemini calls, tokens and estimated cost"
         actions={<Segmented label="Range" options={RANGES} value={days} onChange={setDays} />}
       />
+      <PageGuide page="usage" />
 
       {error && <Banner tone="error" title="Couldn't load usage">{error.message}</Banner>}
 

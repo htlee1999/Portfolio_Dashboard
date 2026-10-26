@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { mutate as globalMutate } from "swr";
 
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge, Card } from "@/components/ui/card";
 import { Select, TextField } from "@/components/ui/controls";
@@ -91,6 +92,7 @@ export default function HoldingsPage() {
           </>
         }
       />
+      <PageGuide page="holdings" />
 
       {error && <Banner tone="error" title="Couldn't load holdings">{error.message}</Banner>}
 

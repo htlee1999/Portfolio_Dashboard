@@ -544,3 +544,90 @@ export type ScheduledRuns = {
     errors: { symbol: string; provider: string | null; error: string }[];
   }[];
 };
+
+export type RetroSourceId = "horizons" | "swisseph" | "local";
+
+export type RetroStation = {
+  sign: string;
+  degree: number;
+  longitude: number;
+  /** Consensus (median) time across sources, UTC. */
+  time: string;
+  by_source: Partial<Record<RetroSourceId, string | null>>;
+  spread_hours: number;
+  agree: number;
+};
+
+export type RetroPeriod = {
+  planet: string;
+  name: string;
+  start: string;
+  end: string;
+  shadow_start: string | null;
+  shadow_end: string | null;
+  station_retrograde: RetroStation;
+  station_direct: RetroStation;
+  verification: {
+    status: "verified" | "partial" | "conflict" | "single";
+    sources_agreeing: number;
+    sources_available: number;
+    max_spread_hours: number;
+  };
+};
+
+export type RetrogradeCalendar = {
+  range: { start: string; end: string };
+  generated_at: string;
+  reference: RetroSourceId;
+  agree_hours: number;
+  planets: { id: string; name: string }[];
+  sources: { id: RetroSourceId; name: string; method: string; url: string; status: "ok" | "error"; error?: string; stations?: number }[];
+  periods: RetroPeriod[];
+};
+
+export type RetroCompare = {
+  days_in: number;
+  days_out: number;
+  /** Annualized return inside / outside the windows, %. */
+  ann_in: number;
+  ann_out: number;
+  /** ann_in − ann_out, percentage points. */
+  diff: number;
+  daily_diff_bp: number;
+  vol_in: number;
+  vol_out: number;
+  up_in: number;
+  up_out: number;
+  /** Circular-shift p-value and its Benjamini–Hochberg q-value. */
+  p: number;
+  q: number;
+  shifts: number;
+};
+
+export type RetroMarkets = {
+  generated_at: string;
+  since: number;
+  window: "retrograde" | "shadow";
+  benchmark: string;
+  planets: string[];
+  missing: string[];
+  tests: { id: string; label: string; planets: string[]; share_of_days: number | null }[];
+  results: {
+    symbol: string;
+    name: string;
+    group: string;
+    first_date: string;
+    days: number;
+    tests: Record<string, { absolute: RetroCompare | null; excess?: RetroCompare | null }>;
+  }[];
+  periods: {
+    planet: string;
+    start: string;
+    end: string;
+    trading_days: number;
+    complete: boolean;
+    returns: Record<string, { ret: number; typical: number | null; typical_down: number | null }>;
+  }[];
+  growth: ({ date: string } & Record<string, number | string | null>)[];
+  method: { min_days: number; exclude_shift_days: number; tests_run: number };
+};

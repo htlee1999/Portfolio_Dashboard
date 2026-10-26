@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { Donut, MUTED, SERIES, SignedBars } from "@/components/charts/charts";
 import { CurrencyMenu } from "@/components/shell/currency-menu";
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Button, IconButton } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Banner, EmptyState, Skeleton } from "@/components/ui/feedback";
@@ -49,6 +50,7 @@ export default function OverviewPage() {
           </>
         }
       />
+      <PageGuide page="overview" />
 
       {error && <Banner tone="error" title="Couldn't load your portfolio">{error.message}</Banner>}
 

@@ -2,6 +2,8 @@
 
 What each screen shows, how its numbers are calculated, and where the limits are. Code references point to the module that does the work.
 
+Every page also opens with **How to read this page**, a step-by-step walkthrough of its sections: what each shows, how to read it, and common misreadings. It starts closed; open it from the bar under the page title, and it remembers whether you left it open for that page in that browser. The text is in `web/src/lib/guides.ts`; update it when a page changes.
+
 - [Overview](#overview)
 - [Holdings](#holdings)
 - [Performance](#performance)
@@ -307,6 +309,28 @@ Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the 
 - Each signal expands to show the saved quote, the entry close, the return since entry vs the S&P 500, the target, the checkpoints, your position when it was generated, the reasoning and the strengths and risks. Records saved by the original Streamlit version have no separate steps and show their original reasoning text instead.
 
 **Is the second look right?** appears once any scored call has an evaluation. It groups scored BUY and SELL calls (all symbols, ignoring the filters) by evaluation verdict, with each group's win rate and average return vs the S&P 500 at the selected checkpoint; if the evaluation works, *weakened* and *contradicted* calls should do worse than *stands*. It also gives the Brier score (mean of (confidence/10 − outcome)², lower is better) for the original and the adjusted confidence on the same calls: if lowering confidence was warranted, the adjusted score is lower. Each score is also shown as skill vs a coin flip (1 − score ÷ 0.25, where 0.25 is the score of always saying 50%). Below 30 evaluated calls it says the numbers are anecdotes. Evaluation is optional, so evaluated calls are the ones you chose to check; compare groups with that in mind.
+
+## Retrograde
+
+A calendar of when planets appear to move backwards, and where those periods overlap. Mercury, Venus and Mars are shown by default; Jupiter through Pluto can be switched on.
+
+- **At a glance**: a timeline of the year with one row per planet (solid = retrograde, faded = shadow) and an overlap row where two or more selected planets are retrograde together.
+- **Calendar**: twelve month grids with a stripe per planet on each day. Days with overlapping retrogrades are ringed; select a day to see each planet's state and any station that day.
+- **Overlaps**: each stretch where two or more selected planets are retrograde, with exact start, end and length.
+- **What it means in astrology**: for each selected planet, what it governs, how often it goes retrograde, the traditional reading, and what it's said to be good for and what's traditionally avoided. Also covers stations, shadows and inner vs outer planets. Every reading links to its source (Cafe Astrology, The Old Farmer's Almanac, Astrology.com, Astrostyle, ABC7) and is labelled as astrological tradition rather than prediction. The text lives in `web/src/lib/retrograde-meanings.ts`.
+- **Periods**: station times in your timezone, the zodiac degree of each station, the shadow, and the verification result. Select a row to compare the three sources.
+
+**How it's verified.** Daily geocentric ecliptic longitudes come from three independent ephemerides: NASA JPL Horizons (DE441 numerical integration), Swiss Ephemeris through astro.com's swetest service, and Astronomy Engine (VSOP87 theory, computed locally). A station is where daily motion changes sign, timed by a parabola fit through the three days around it. Each station is matched across sources; a period is *verified* when every source agrees within 12 hours (in practice they agree within minutes for Mercury, Venus and Mars). The displayed time is the median. If a source is down the page says so and checks against the rest. Shadows run from when the planet first reaches its station-direct degree to when it returns to its station-retrograde degree.
+
+### Retrograde vs Markets
+
+Open it with **vs Markets** on the Retrograde page. It tests whether ETFs behave differently while the selected planets are retrograde. The S&P 500 (SPY) is the benchmark; the presets add QQQ, semiconductors (SMH, SOXX), data centres (DTCR, SRVR), REITs (VNQ, XLRE), the eleven Select Sector SPDRs and gold (GLD). You can add any ticker.
+
+- **Heatmap**: for every ETF and retrograde (plus "any selected" and "overlap of 2+"), the annualized return inside the windows minus outside them, either absolute or in excess of SPY. `*` marks p < 0.05 on its own; `**` marks q < 0.05, significant after correcting for every test on the page.
+- **Detail**: for the selected cell, returns, volatility and up-day rates inside vs outside; a growth-of-$1 chart against SPY with the windows shaded; and every window's return against SPY and against a typical stretch of the same length. Above the table: how many windows the ETF fell in against how often any stretch of that length falls (the base rate), the median window, the average, and the average without the worst few windows, to show whether a handful of crashes drive the result.
+- **Controls**: planets, retrograde only or including shadow, and start year (2000, 2010, 2015, 2020) to check whether a result holds over time.
+
+**Method.** Daily dividend-adjusted log returns from Yahoo Finance. A day is inside if a window covers that day's US close. Significance comes from a circular-shift test: the real retrograde calendar is slid to every other start date (except within 63 trading days of the real one), keeping window lengths and spacing, and p is the share of placements with a gap as large as the real one. All shifts are computed at once with an FFT. Unlike a t-test, this isn't fooled by volatility clustering. Benjamini–Hochberg q-values correct for the many tests. With presets since 2000, no comparison survives the correction. The statistics are unit-tested in `tests/test_retro_markets.py`.
 
 ## Chat
 

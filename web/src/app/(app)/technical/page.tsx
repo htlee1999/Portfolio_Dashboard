@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { SERIES, SignedBars, TimeSeries } from "@/components/charts/charts";
 import { PageHeader, ResearchTabs } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { ResearchPage, useDebounced } from "@/components/shell/research-page";
 import { SymbolPicker, useSymbol } from "@/components/shell/symbol-picker";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ function TechnicalView() {
           </>
         }
       />
+      <PageGuide page="technical" />
 
       {error && <Banner tone="error" title={`Couldn't analyze ${symbol}`}>{error.message}</Banner>}
 

@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Donut, MUTED, SERIES, TimeSeries, type LineSpec } from "@/components/charts/charts";
 import { CurrencyMenu } from "@/components/shell/currency-menu";
 import { PageHeader } from "@/components/shell/page-header";
+import { PageGuide } from "@/components/shell/page-guide";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/controls";
 import { Banner, LoadingBlock } from "@/components/ui/feedback";
@@ -60,6 +61,7 @@ export default function PerformancePage() {
           </>
         }
       />
+      <PageGuide page="performance" />
 
       {error && <Banner tone="error" title="Couldn't load performance">{error.message}</Banner>}
 

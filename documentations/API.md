@@ -142,6 +142,14 @@ The assessment runs in two steps, so you can review the inputs before spending a
 | GET | `/api/usage/export?days=30` | CSV |
 | DELETE | `/api/usage/old?days=90` | **Admin.** Deletes older records → `{removed}` |
 
+## Retrograde
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/retrograde?start_year=2026&end_year=2027` | Years default to last year through next year (1950–2100, at most 5 years). `refresh=true` skips the cache. Returns `range`, `generated_at`, `reference` (the source shadows come from), `agree_hours`, `planets[]` (`id`, `name`), `sources[]` (`id` of `horizons`, `swisseph` or `local`, `name`, `method`, `url`, `status` `ok` or `error`, `error`, `stations`) and `periods[]` touching the range: `planet`, `name`, `start` and `end` (consensus UTC times), `shadow_start`, `shadow_end`, `station_retrograde` and `station_direct` (`sign`, `degree`, `longitude`, `time`, `by_source` times, `spread_hours`, `agree`) and `verification` (`status` of `verified`, `partial`, `conflict` or `single`, `sources_agreeing`, `sources_available`, `max_spread_hours`). `502` if no source answers. Cached in `data/retrograde_<start>_<end>.json` for 30 days, or an hour if a source failed |
+| GET | `/api/retrograde/etfs` | The preset ETF list (`symbol`, `name`, `group`) and the `benchmark` (SPY) |
+| GET | `/api/retrograde/markets?planets=mercury,venus,mars&symbols=SMH,VNQ&since=2000&window=retrograde` | Event study of ETF returns inside vs outside retrograde windows. `symbols` defaults to the preset list (up to 25; SPY is always added), `since` is 2000 to two years ago, `window` is `retrograde` or `shadow`. Returns `tests[]` (`id` of each planet, plus `any` and `overlap` when more than one is chosen; `share_of_days`), `results[]` per symbol (`name`, `group`, `first_date`, `tests[id].absolute` and `.excess` vs SPY: `days_in`, `days_out`, `ann_in`, `ann_out`, `diff`, `daily_diff_bp`, `vol_in`, `vol_out`, `up_in`, `up_out`, circular-shift `p`, Benjamini–Hochberg `q`, `shifts`), `periods[]` (each window's `returns[symbol]`: `ret` and `typical` same-length return), weekly `growth[]` and `missing` symbols. Cached in memory for an hour |
+
 ## Data and users
 
 | Method | Path | Notes |
