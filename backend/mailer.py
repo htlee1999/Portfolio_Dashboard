@@ -1,4 +1,4 @@
-"""Outgoing email (password resets).
+"""Outgoing email (password resets, and the alert digest sent when a scheduled run starts).
 
 Sends through SMTP when SMTP_HOST is configured. Otherwise the message is
 printed to the API server's console, which keeps password recovery working
@@ -88,3 +88,13 @@ def send_password_reset(username: str, email: str | None, link: str, minutes: in
     banner = "=" * 72
     log.warning("\n%s\nPASSWORD RESET for '%s' (expires in %d min):\n%s\n%s", banner, username, minutes, link, banner)
     return "console"
+
+
+def send_alerts(username: str, email: str | None, digest: str) -> str | None:
+    """Email the alert digest. Returns "email", or None when email isn't set up (nothing is printed:
+    the same alerts are on the Plan page)."""
+    if not smtp_configured() or not email:
+        return None
+    _send_smtp(email, "Portfolio Dashboard: alerts need attention",
+               f"Hi {username},\n\n{digest}\n\nOpen {app_url()}/plan for details.\n")
+    return "email"

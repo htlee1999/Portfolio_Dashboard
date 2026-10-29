@@ -73,11 +73,11 @@ export default function UsagePage() {
           </StatGrid>
 
           <Card>
-            <CardHeader title="Rate limits" subtitle="Gemini free-tier defaults · set in backend/usage.py" />
+            <CardHeader title="Rate limits" subtitle={`Gemini free tier · daily count resets ${dateTime(data.rate.resets_at)} (midnight Pacific)`} />
             <div className="grid gap-5 sm:grid-cols-3">
-              <Meter label="Requests, last minute" used={data.rate.minute} limit={data.rate.limits.minute} />
-              <Meter label="Requests, last hour" used={data.rate.hour} limit={data.rate.limits.hour} />
-              <Meter label="Tokens today" used={data.rate.day_tokens} limit={data.rate.limits.day_tokens} />
+              <Meter label="Requests per minute" used={data.rate.rpm} limit={data.rate.limits.rpm} />
+              <Meter label="Tokens per minute" used={data.rate.tpm} limit={data.rate.limits.tpm} />
+              <Meter label="Requests today" used={data.rate.rpd} limit={data.rate.limits.rpd} />
             </div>
           </Card>
 

@@ -230,6 +230,34 @@ def get_email(username: str) -> str | None:
     return load_users().get(username, {}).get("email")
 
 
+def gemini_private(username: str) -> bool:
+    """Whether Gemini is kept from the user's portfolio (see backend/privacy.py). On unless turned off."""
+    return load_users().get(username, {}).get("gemini_private", True)
+
+
+def private_terms(username: str) -> list[str]:
+    """Words the user always wants hidden from Gemini: their name, employer, address and the like."""
+    return load_users().get(username, {}).get("private_terms", [])
+
+
+def set_private_terms(username: str, terms: list[str]) -> list[str]:
+    users = load_users()
+    if username not in users:
+        raise ValueError("User not found")
+    terms = list(dict.fromkeys(t.strip() for t in terms if len(t.strip()) >= 2))[:100]
+    users[username]["private_terms"] = terms
+    save_json(_users_path(), users)
+    return terms
+
+
+def set_gemini_private(username: str, private: bool) -> None:
+    users = load_users()
+    if username not in users:
+        raise ValueError("User not found")
+    users[username]["gemini_private"] = private
+    save_json(_users_path(), users)
+
+
 # ── Password reset ───────────────────────────────────────────────────────────
 # Tokens are signed, expire after RESET_MAX_AGE, and embed a fingerprint of the
 # current password hash, so a link stops working as soon as it has been used
@@ -334,7 +362,8 @@ def current_user(request: Request) -> dict:
         raise HTTPException(401, "Account no longer exists")
     if payload.get("v", 0) != user.get("session_version", 0):
         raise HTTPException(401, "Signed out because the password was changed")
-    return {"username": payload["u"], "role": user.get("role", "user"), "email": user.get("email")}
+    return {"username": payload["u"], "role": user.get("role", "user"), "email": user.get("email"),
+            "gemini_private": user.get("gemini_private", True), "private_terms": user.get("private_terms", [])}
 
 
 def admin_user(user: dict = Depends(current_user)) -> dict:

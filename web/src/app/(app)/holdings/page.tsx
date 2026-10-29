@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Download, FileDown, FileUp, Plus, Trash2, Briefcase } from "lucide-react";
+import { Archive, Download, FileDown, FileUp, Plus, Trash2, Briefcase, HandCoins, Undo2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 import { mutate as globalMutate } from "swr";
@@ -14,17 +14,20 @@ import { Banner, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Sheet } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
 import { api, download, useApi } from "@/lib/api";
-import { money, number, relative, shortDate } from "@/lib/format";
+import { money, number, pct, relative, shortDate } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { CURRENCIES } from "@/lib/portfolio";
-import type { Holding } from "@/lib/types";
+import type { Holding, Sale } from "@/lib/types";
 
-const refreshPortfolio = () => globalMutate((k) => typeof k === "string" && (k.startsWith("/holdings") || k.startsWith("/portfolio/") || k.startsWith("/data/")));
+const refreshPortfolio = () =>
+  globalMutate((k) => typeof k === "string" && ["/holdings", "/portfolio/", "/data/", "/transactions", "/plan"].some((p) => k.startsWith(p)));
 
 export default function HoldingsPage() {
   const toast = useToast();
   const { data, error, isLoading, mutate } = useApi<{ holdings: Holding[]; last_updated: string | null }>("/holdings");
   const [adding, setAdding] = useState(false);
+  const [selling, setSelling] = useState(false);
+  const { data: tx } = useApi<{ transactions: Sale[] }>("/transactions");
   const [confirmClear, setConfirmClear] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,6 +89,11 @@ export default function HoldingsPage() {
             <Button variant="gray" icon={<FileUp className="size-[18px]" />} loading={busy === "import"} onClick={() => fileRef.current?.click()}>
               Import CSV
             </Button>
+            {holdings.length > 0 && (
+              <Button variant="gray" icon={<HandCoins className="size-[18px]" />} onClick={() => setSelling(true)}>
+                Record Sale
+              </Button>
+            )}
             <Button icon={<Plus className="size-[18px]" strokeWidth={2.5} />} onClick={() => setAdding(true)}>
               Add Holding
             </Button>
@@ -196,6 +204,8 @@ export default function HoldingsPage() {
             </div>
           </Card>
 
+          {(tx?.transactions.length ?? 0) > 0 && <SalesCard sales={tx!.transactions} />}
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <ActionTile icon={<Download />} label="Export CSV" loading={busy === "export"} onClick={() => run("export", () => download("/holdings/export"))} />
             <ActionTile icon={<FileDown />} label="CSV Template" onClick={() => download("/holdings/template")} />
@@ -211,6 +221,7 @@ export default function HoldingsPage() {
       )}
 
       <AddHoldingSheet open={adding} onClose={() => setAdding(false)} />
+      <SellSheet open={selling} onClose={() => setSelling(false)} holdings={holdings} />
 
       <Sheet
         open={confirmClear}
@@ -309,6 +320,123 @@ function AddHoldingSheet({ open, onClose }: { open: boolean; onClose: () => void
         </div>
         <Button type="submit" size="lg" className="w-full" loading={saving}>
           Add to Portfolio
+        </Button>
+      </form>
+    </Sheet>
+  );
+}
+
+function SalesCard({ sales }: { sales: Sale[] }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function undo(t: Sale) {
+    setBusy(t.id);
+    try {
+      await api(`/transactions/${t.id}`, { method: "DELETE" });
+      refreshPortfolio();
+      toast(`Undid the ${t.Symbol} sale; its shares are back in their lots`);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="px-5 pt-5 sm:px-6">
+        <h3 className="text-headline">Sales</h3>
+        <p className="mt-0.5 text-footnote text-label-2">Shares are taken from the oldest lots first. Undo puts them back.</p>
+      </div>
+      <ul className="tabular mt-3">
+        {sales.map((t) => (
+          <li key={t.id} className="flex items-center gap-3 border-t-[0.5px] border-separator py-2.5 pr-2 pl-5 sm:pl-6">
+            <div className="min-w-0 flex-1">
+              <div className="text-body font-semibold">
+                {t.Symbol} <span className="font-normal text-label-2">· {shortDate(t.Date, true)}</span>
+              </div>
+              <div className="truncate text-footnote text-label-2">
+                {number(t.Quantity, t.Quantity % 1 ? 2 : 0)} × {money(t.Price, t.Currency)}
+                {t.Fees > 0 && ` · fees ${money(t.Fees, t.Currency)}`} · cost {money(t.cost, t.Currency)}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className={`text-callout font-semibold ${t.realized >= 0 ? "text-positive" : "text-negative"}`}>{money(t.realized, t.Currency, { sign: true })}</div>
+              <div className="text-footnote text-label-2">{t.cost ? pct((t.realized / t.cost) * 100, 1) : "—"} realized</div>
+            </div>
+            <IconButton label={`Undo ${t.Symbol} sale from ${t.Date}`} className="!text-label-2 hover:!text-tint" onClick={() => undo(t)} disabled={busy === t.id}>
+              <Undo2 className="size-[18px]" />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function SellSheet({ open, onClose, holdings }: { open: boolean; onClose: () => void; holdings: Holding[] }) {
+  const toast = useToast();
+  const today = new Date().toISOString().slice(0, 10);
+  const symbols = [...new Set(holdings.map((h) => h.Symbol))].sort();
+  const [form, setForm] = useState({ symbol: "", quantity: "", price: "", date: today, fees: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const symbol = form.symbol || symbols[0] || "";
+  const lots = holdings.filter((h) => h.Symbol === symbol);
+  const held = lots.filter((h) => h.Purchase_Date <= form.date).reduce((n, h) => n + h.Quantity, 0);
+  const currency = lots[0]?.Currency ?? "USD";
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [k]: e.target.value });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      const t = await api<Sale>("/holdings/sell", {
+        method: "POST",
+        json: { symbol, quantity: Number(form.quantity), price: Number(form.price), sale_date: form.date, fees: Number(form.fees || 0) },
+      });
+      refreshPortfolio();
+      toast(`Sold ${number(t.Quantity, t.Quantity % 1 ? 2 : 0)} ${t.Symbol}: ${money(t.realized, t.Currency, { sign: true })} realized`);
+      setForm({ symbol, quantity: "", price: "", date: today, fees: "" });
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Record Sale">
+      <form onSubmit={submit} className="space-y-4">
+        {error && <Banner tone="error" title={error} />}
+        <Select label="Symbol" options={symbols} value={symbol} onChange={set("symbol")} />
+        <div className="grid grid-cols-2 gap-3">
+          <TextField
+            label="Shares sold"
+            type="number"
+            inputMode="decimal"
+            min="0.0001"
+            step="any"
+            max={held || undefined}
+            required
+            value={form.quantity}
+            onChange={set("quantity")}
+            hint={`${number(held, held % 1 ? 2 : 0)} held on that date`}
+          />
+          <TextField label={`Price per share (${currency})`} type="number" inputMode="decimal" min="0.0001" step="any" required value={form.price} onChange={set("price")} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <TextField label="Sale date" type="date" required max={today} value={form.date} onChange={set("date")} />
+          <TextField label={`Fees (${currency})`} type="number" inputMode="decimal" min="0" step="any" placeholder="0" value={form.fees} onChange={set("fees")} />
+        </div>
+        <p className="px-1 text-footnote text-label-2">
+          Shares come out of the oldest lots first (FIFO). The sale feeds your realized gains and actual returns on Performance.
+        </p>
+        <Button type="submit" size="lg" className="w-full" loading={saving}>
+          Record Sale
         </Button>
       </form>
     </Sheet>

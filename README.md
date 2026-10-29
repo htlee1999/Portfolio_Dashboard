@@ -32,10 +32,10 @@ All keys are optional. The core portfolio features work without any of them.
 
 | Variable | Enables | Get one |
 |---|---|---|
-| `FINN_API_KEY` | Faster, more reliable live quotes for US-listed symbols. Yahoo Finance is used otherwise. | [finnhub.io](https://finnhub.io/) (free) |
+| `FINN_API_KEY` | Faster, more reliable live quotes for US-listed symbols (Yahoo Finance otherwise), and the industry peers on Fundamentals | [finnhub.io](https://finnhub.io/) (free) |
 | `GEMINI_API_KEY` | AI Assessment | [aistudio.google.com](https://aistudio.google.com/) (free tier) |
 | `SERP_API_KEY` | Sentiment, and the news input to AI Assessment | [serpapi.com](https://serpapi.com/) (free monthly searches) |
-| `SMTP_*` | Emailing password-reset links. Without it, links appear in the API terminal | any SMTP provider, such as a Gmail app password |
+| `SMTP_*` | Emailing password-reset links (without it, links appear in the API terminal) and the alert digest from Plan | any SMTP provider, such as a Gmail app password |
 
 The chat assistant and scheduled assessments can also run on a free local model through [Ollama](https://ollama.com): install it and run `ollama pull qwen3.5:9b`. No key is needed.
 
@@ -45,15 +45,17 @@ See [Configuration](documentations/CONFIGURATION.md) for every setting, includin
 
 | Page | What it does |
 |---|---|
-| **Overview** | Portfolio value, all-time gain, allocation, gain by position and a positions table, all in your base currency |
-| **Holdings** | Add, delete, import and export purchase lots (CSV), and create backups |
-| **Performance** | Your current allocation vs the S&P 500 over 1M–5Y, sector mix and per-holding volatility |
+| **Overview** | Portfolio value, all-time gain, what needs attention, the market backdrop, allocation, gain by position and a positions table, all in your base currency |
+| **Holdings** | Add, delete, import and export purchase lots (CSV), record sales (oldest lots first, with undo), and create backups |
+| **Performance** | Your actual returns (time and money-weighted) from every purchase, sale and dividend against the same trades made in the S&P 500, dividends and realized gains; and your current allocation vs the S&P 500 over 1M–5Y |
+| **Risk** | Concentration warnings, volatility, beta, independent bets, value at risk, each holding's share of the risk, correlation, sector/industry/currency exposure against the S&P 500, drawdown, historical stress tests, and a what-if check before a trade |
+| **Plan** | A thesis, sell conditions and review date for each holding, alert rules, target weights with the trades to rebalance, a watchlist and the earnings calendar; what needs attention is also emailed when a scheduled run starts |
 | **Technicals** | Price with Bollinger Bands or 20/50/200-day averages, RSI, MACD, OBV, ADX and ATR with adjustable periods, 12-1 momentum and 52-week high, and a 5-year back-test of how each signal has worked on the stock |
-| **Fundamentals** | Company profile, ratios read against the company's own history, earnings quality (Piotroski F-score, accruals), financial risk (Altman Z″, interest cover, net debt), earnings surprises and estimate revisions, analyst targets and up to 5 years of financial statements |
+| **Fundamentals** | Company profile, ratios against industry peers and the company's own history, the growth today's price implies (reverse DCF), earnings quality (Piotroski F-score, accruals), financial risk (Altman Z″, interest cover, net debt), earnings surprises and estimate revisions, analyst targets and up to 5 years of financial statements |
 | **Forecast** | Ridge, gradient boosting and random forest models (plus optional pretrained Chronos-Bolt) for the next session's return, tested walk-forward against a no-change forecast, and a GARCH range for the next close |
 | **Sentiment** | Recent firm-specific headlines from Google Finance and Google News, scored by a financial-news language model, with a confidence interval on the net tone and research sources |
-| **AI Assessment** | Combines all of the above, plus your position, into a Gemini recommendation with step-by-step reasoning and a PDF report |
-| **Track Record** | Every past AI recommendation scored against the S&P 500 at 1 week to 1 year, compared with simple rules and between Gemini and a local model, plus price targets, a "follow every BUY" simulation against the index, and the status of the twice-weekly scheduled runs |
+| **AI Assessment** | Combines all of the above, plus the market backdrop and how the stock fits your portfolio, into a Gemini recommendation with step-by-step reasoning and a PDF report |
+| **Track Record** | Every past AI recommendation scored on total return against the S&P 500 at 1 week to 1 year, whether its confidence is calibrated and how well each run ranks its stocks, compared with simple rules and between Gemini and a local model, plus price targets, a "follow every BUY" simulation against the index, and the status of the twice-weekly scheduled runs |
 | **Retrograde** | A calendar and timeline of Mercury, Venus, Mars (and optionally outer-planet) retrogrades, their shadows and overlaps, with every date cross-checked across NASA JPL Horizons, Swiss Ephemeris and a local ephemeris, plus astrological readings with sources and a statistical test of whether sector ETFs (semiconductors, data centres, REITs and more) behave differently during retrogrades than the S&P 500 |
 | **API Usage** | Gemini and local-model calls, tokens, estimated cost and Gemini rate-limit headroom |
 | **Settings** | Account, password, appearance, base currency, raw data editor and (for admins) user management |
@@ -66,7 +68,7 @@ See [Configuration](documentations/CONFIGURATION.md) for every setting, includin
 ```
 backend/                FastAPI server
   main.py               app entry point (uvicorn backend.main:app)
-  routes/               HTTP endpoints: auth, portfolio, analysis, chat, admin
+  routes/               HTTP endpoints: auth, portfolio, plan, analysis, chat, admin
   auth.py               users, emails, password reset tokens, signed session cookies
   ratelimit.py          in-memory limits on sign-in, sign-up and reset attempts
   mailer.py             password-reset email (SMTP, or console fallback)
@@ -74,6 +76,11 @@ backend/                FastAPI server
   storage.py            JSON persistence in data/
   market.py             quotes, history, company info, FX (Finnhub + Yahoo with circuit breaker)
   portfolio.py          valuation, performance vs benchmark, risk, sectors
+  returns.py            actual returns from purchases, sales and dividends; same trades in SPY
+  risk.py               correlation, risk shares, drawdown, VaR, exposure, stress tests, what-if
+  plan.py               targets and rebalancing, watchlist, theses, alerts, earnings calendar
+  valuation.py          peers (Finnhub) and the reverse DCF
+  macro.py              market backdrop: rates, VIX, credit, breadth, sector leadership
   technical.py          indicator series, signals and the 5-year signal back-test
   fundamentals.py       ratios, statements, analyst view
   fundamental_history.py  ratios at each past fiscal year-end
@@ -82,7 +89,7 @@ backend/                FastAPI server
   volatility.py         GARCH(1,1) range for the next close
   sentiment.py          SERPapi news, filtering, financial-news model scoring
   assessment.py         signal aggregation and structured assessment (Gemini or Ollama)
-  batch.py              scheduled assessments over a fixed list of 30 stocks
+  batch.py              scheduled assessments over your holdings and a fixed list of 30 stocks
   chat.py               page-aware chat with the analyses as tools (Ollama or Gemini)
   evaluation.py         second-look review of an assessment with research-based skills
   evaluation_benchmark.py  planted-error benchmark of the evaluation (live Gemini calls)

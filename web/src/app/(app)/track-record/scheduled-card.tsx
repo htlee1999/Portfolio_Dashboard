@@ -13,7 +13,7 @@ import { useSession } from "@/lib/session";
 
 const PROVIDER = { local: "Local", gemini: "Gemini" } as const;
 
-/** Twice-weekly runs over the fixed stock list: live progress, the next run, and recent runs. */
+/** Twice-weekly runs over your holdings and the fixed stock list: live progress, the next run, and recent runs. */
 export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
   const { data, mutate } = useScheduled();
   const { user } = useSession();
@@ -30,6 +30,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
   }, [running, onFinished]);
 
   if (!data) return null;
+  const onList = data.list_size - (data.total - data.held.length);
 
   const start = async () => {
     setStarting(true);
@@ -49,7 +50,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
       <div id="scheduled" className="scroll-mt-16" />
       <CardHeader
         title="Scheduled runs"
-        subtitle={`A fixed list of stocks, assessed on Mondays and Fridays, ${data.chunk} an hour from ${data.hours[0]}:00`}
+        subtitle={`Your holdings and a fixed list of stocks, assessed on Mondays and Fridays, ${data.chunk} an hour from ${data.hours[0]}:00`}
         action={
           user?.role === "admin" &&
           s?.state !== "finished" && (
@@ -80,6 +81,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
               {running && s.current ? (
                 <>
                   , assessing <span className="font-semibold">{s.current}</span>
+                  {data.held.includes(s.current) && " (one of your holdings)"}
                 </>
               ) : (
                 s.next_chunk && `; next ${data.chunk} at ${shortTime(s.next_chunk)}`
@@ -102,6 +104,10 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
       ) : (
         <p className="mb-4 text-callout">
           Next run {dateTime(data.next_run)}: {data.next_compare ? "local model and Gemini (comparison week)" : `local model (${data.model})`}.
+          {" "}
+          {data.total} stocks: your {data.held.length} holdings first, then the fixed list of {data.list_size}
+          {onList > 0 && ` (${onList} of your holdings are on it too)`}.
+          {data.held.length > 0 && <span className="block text-footnote text-label-2">Your holdings: {data.held.join(", ")}</span>}
           {s?.state === "incomplete" && (
             <span className="text-negative">
               {" "}
@@ -117,6 +123,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
             <tr>
               <th className="py-1 text-left font-normal">Run</th>
               <th className="py-1 text-left font-normal">Models</th>
+              <th className="py-1 text-left font-normal">Stocks</th>
               <th className="py-1 text-right font-normal">Calls saved</th>
               <th className="py-1 text-right font-normal">Failed</th>
             </tr>
@@ -128,6 +135,10 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
                 <td className="py-1.5">
                   {r.providers.map((p) => PROVIDER[p]).join(" + ") || "—"}
                   {r.skipped.length > 0 && <span className="text-label-2"> · skipped {[...new Set(r.skipped.map((x) => x.split(":")[0]))].join(", ")} at times</span>}
+                </td>
+                <td className="py-1.5">
+                  {r.total ?? "—"}
+                  {r.held > 0 && <span className="text-label-2"> · {r.held} yours</span>}
                 </td>
                 <td className="py-1.5 text-right">
                   {r.ok}

@@ -18,6 +18,8 @@ import { spring } from "@/lib/motion";
 import { useSession } from "@/lib/session";
 import type { Performance } from "@/lib/types";
 
+import { ActualReturns } from "./actual-returns";
+
 const MAX_PINNED = 6;
 
 export default function PerformancePage() {
@@ -53,15 +55,22 @@ export default function PerformancePage() {
     <>
       <PageHeader
         title="Performance"
-        subtitle="How your current allocation has performed against the market"
-        actions={
-          <>
-            <Segmented label="Period" options={PERIODS} value={period} onChange={setPeriod} />
-            <CurrencyMenu />
-          </>
-        }
+        subtitle="What your money actually did, and how your current allocation has performed against the market"
+        actions={<CurrencyMenu />}
       />
       <PageGuide page="performance" />
+
+      <div className="mb-8">
+        <ActualReturns base={baseCurrency} />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <h2 className="text-title-3">Current allocation</h2>
+          <p className="mt-0.5 text-footnote text-label-2">Today&apos;s holdings and weights, as if held over the whole period: a backtest, not your history</p>
+        </div>
+        <Segmented label="Period" options={PERIODS} value={period} onChange={setPeriod} />
+      </div>
 
       {error && <Banner tone="error" title="Couldn't load performance">{error.message}</Banner>}
 

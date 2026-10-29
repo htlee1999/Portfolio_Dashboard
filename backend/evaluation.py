@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from config import GEMINI_AVAILABLE, get_gemini_api_key, is_gemini_api_configured
 
-from . import portfolio, technical, usage
+from . import portfolio, privacy, technical, usage
 from .assessment import MODEL, THINKING_LEVEL, Assessment
 from .storage import update_history
 
@@ -565,13 +565,19 @@ def review(username: str, ctx: dict, ai: dict) -> dict:
 
     from google import genai
 
+    if privacy.is_private(username, "gemini"):
+        # The user's position stays out, and so does advice about it, which a local-model call may have written.
+        ctx = privacy.context(ctx)
+        ai = {**ai, "position_advice": "(withheld: the user keeps their position private from this model)"}
     chosen = select(username, ctx, ai)
     prompt = _prompt(ctx, ai, chosen)
+    redactor = privacy.redactor(username, strict=True)
     try:
+        usage.acquire(usage.estimate_tokens(prompt))
         client = genai.Client(api_key=get_gemini_api_key())
         response = client.models.generate_content(
             model=MODEL,
-            contents=prompt,
+            contents=redactor(prompt),
             config={
                 "response_mime_type": "application/json",
                 "response_schema": Evaluation,
@@ -596,7 +602,7 @@ def review(username: str, ctx: dict, ai: dict) -> dict:
     )
 
     names = [c["name"] for c in chosen]
-    out = enforce(result.model_dump(), ai, names)
+    out = enforce(redactor.restore(result.model_dump()), ai, names)
 
     library = skills()
     out.update({

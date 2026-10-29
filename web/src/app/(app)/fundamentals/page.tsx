@@ -21,6 +21,8 @@ import { EVIDENCE_FOR, FUNDAMENTALS, GUIDE_SECTIONS } from "@/lib/fundamental-ev
 import { spring } from "@/lib/motion";
 import type { EarningsRecord, Fundamentals, HistoryRow, Metric, Piotroski, Ratio } from "@/lib/types";
 
+import { ValuationCard } from "./valuation-card";
+
 export default function Page() {
   return (
     <ResearchPage>
@@ -143,6 +145,8 @@ function FundamentalsView() {
               )}
             </Card>
           </div>
+
+          <ValuationCard symbol={symbol} />
 
           {data.history.rows.length > 0 && <HistoryCard history={data.history} />}
 

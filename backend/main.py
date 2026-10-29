@@ -15,7 +15,7 @@ import os  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
-from .routes import admin, analysis, astro, auth, chat, portfolio  # noqa: E402
+from .routes import admin, analysis, astro, auth, chat, plan, portfolio  # noqa: E402
 
 # Interactive API docs only in development (or with API_DOCS=1).
 _docs = os.getenv("API_DOCS", "0" if os.getenv("VERCEL") else "1") == "1"
@@ -40,7 +40,7 @@ async def security(request: Request, call_next):
     return response
 
 
-for module in (auth, portfolio, analysis, astro, chat, admin):
+for module in (auth, portfolio, plan, analysis, astro, chat, admin):
     app.include_router(module.router)
 
 

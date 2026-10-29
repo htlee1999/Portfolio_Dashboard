@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, CircleDot, FileDown, Info, MinusCircle, ShieldCheck, Sparkles, TriangleAlert, XCircle } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, CircleDot, ClipboardCheck, FileDown, Info, MinusCircle, ShieldCheck, Sparkles, TriangleAlert, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -21,7 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { api, download } from "@/lib/api";
 import { PERIODS, money, number, pct } from "@/lib/format";
 import { spring, stagger, staggerItem } from "@/lib/motion";
-import type { AIResult, AssessmentContext, EntryPlan, Evaluation, EvaluationFinding } from "@/lib/types";
+import type { AIResult, AssessmentContext, EntryPlan, Evaluation, EvaluationFinding, Plan } from "@/lib/types";
 
 export default function Page() {
   return (
@@ -354,8 +354,11 @@ function AIPanel({
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <Mini label="Price now" value={money(price, ccy)} />
+                {ai.expected_excess_return != null && (
+                  <Mini label="Expected vs S&P 500" value={<Delta value={ai.expected_excess_return}>{pct(ai.expected_excess_return, 1)}</Delta>} />
+                )}
                 <Mini
                   label="Price target"
                   value={ai.price_target ? (
@@ -375,7 +378,7 @@ function AIPanel({
       <motion.div variants={staggerItem}>
         <AnimatePresence mode="wait">
           {evaluation ? (
-            <EvaluationPanel key="evaluation" ev={evaluation} />
+            <EvaluationPanel key="evaluation" ev={evaluation} symbol={ctx.symbol} />
           ) : (
             <motion.div key="evaluate-cta" exit={{ opacity: 0, scale: 0.98 }} transition={spring.smooth}>
               <Card>
@@ -471,7 +474,7 @@ const VERDICT = {
 
 const APPROACH: Record<EntryPlan["approach"], string> = { all_at_once: "All at once", staged: "Staged", wait: "Wait" };
 
-function EvaluationPanel({ ev }: { ev: Evaluation }) {
+function EvaluationPanel({ ev, symbol }: { ev: Evaluation; symbol: string }) {
   const v = VERDICT[ev.verdict];
   const titles = Object.fromEntries(ev.skills.map((s) => [s.name, s.title]));
   const failed = ev.checks.filter((c) => !c.passed);
@@ -527,6 +530,7 @@ function EvaluationPanel({ ev }: { ev: Evaluation }) {
                   </li>
                 ))}
               </ul>
+              <AddToThesis symbol={symbol} conditions={ev.invalidation} />
             </>
           )}
         </Card>
@@ -613,5 +617,37 @@ function FindingRow({ f, skill }: { f: EvaluationFinding; skill: string }) {
         {f.finding}
       </div>
     </li>
+  );
+}
+
+/** Copy the evaluation's conditions into the holding's "sell if" list on Plan, keeping what's there. */
+function AddToThesis({ symbol, conditions }: { symbol: string; conditions: string[] }) {
+  const toast = useToast();
+  const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+  async function add() {
+    setState("busy");
+    try {
+      const plan = await api<Plan>("/plan");
+      const prior = plan.journal[symbol];
+      const sell_if = [...new Set([...(prior?.sell_if ?? []), ...conditions])];
+      await api(`/plan/journal/${symbol}`, { method: "PUT", json: { thesis: prior?.thesis ?? "", sell_if, review_date: prior?.review_date ?? null } });
+      setState("done");
+      toast(`Added to your ${symbol} sell conditions on Plan`);
+    } catch (e) {
+      setState("idle");
+      toast((e as Error).message, "error");
+    }
+  }
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <Button variant="tinted" size="sm" icon={<ClipboardCheck className="size-4" />} loading={state === "busy"} disabled={state === "done"} onClick={add}>
+        {state === "done" ? "Added to Plan" : "Add to my sell conditions"}
+      </Button>
+      {state === "done" && (
+        <Link href="/plan" className="text-footnote font-semibold text-tint">
+          Open Plan
+        </Link>
+      )}
+    </div>
   );
 }

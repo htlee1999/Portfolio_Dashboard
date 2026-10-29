@@ -12,8 +12,8 @@ import requests
 from config import (GEMINI_AVAILABLE, get_gemini_api_key, get_ollama_model, get_ollama_url, is_gemini_api_configured,
                     normalize_symbol, ollama_think)
 
-from . import fundamentals, market, predictive, sentiment, technical, usage
-from .storage import append_history, append_inputs, load_holdings
+from . import fundamentals, macro, market, predictive, privacy, risk, sentiment, technical, usage, valuation
+from .storage import append_history, append_inputs, load_holdings, load_settings
 from .track_record import FLAT_BAND
 
 MODEL = "gemini-3.5-flash-lite"
@@ -21,7 +21,8 @@ MODEL = "gemini-3.5-flash-lite"
 # to weigh conflicting signals without much extra cost (thinking tokens bill as output).
 THINKING_LEVEL = "low"
 # Bump when the prompt changes, so the Track Record can compare versions. 1: before the call was defined.
-PROMPT_VERSION = 2
+# 3: adds the market backdrop, peers and reverse DCF, portfolio fit, and the expected excess return.
+PROMPT_VERSION = 3
 
 
 def _portfolio_position(username: str, symbol: str) -> dict | None:
@@ -178,18 +179,46 @@ def rule_inputs(ctx: dict) -> dict:
     }
 
 
+def _optional(fn, *args):
+    """An input the assessment can do without: None when it fails."""
+    try:
+        return fn(*args)
+    except Exception:
+        return None
+
+
+def portfolio_fit(username: str, symbol: str, industry: str | None) -> dict | None:
+    """How the stock sits in the portfolio: its weight and share of the risk if held, and how much of the
+    portfolio is already in its industry."""
+    r = risk.build(username, load_settings().get("base_currency", "USD"))
+    if not r.get("portfolio"):
+        return None
+    held = next((h for h in r["holdings"] if h["symbol"] == symbol), None)
+    same = next((x for x in r["exposure"]["industry"] if x["name"] == industry), None)
+    return {
+        "weight": held and held["weight"], "risk_share": held and held["risk_share"], "corr_to_rest": held and held["corr_to_rest"],
+        "industry": industry, "industry_weight": same["weight"] if same else 0.0,
+        "largest": [{"symbol": h["symbol"], "weight": h["weight"]} for h in r["holdings"][:3]],
+        "effective_bets": r["portfolio"]["effective_bets"], "holdings": len(r["holdings"]),
+        "beta": r["portfolio"]["beta"],
+    }
+
+
 def build_context(username: str, symbol: str, period: str, include_sentiment: bool, include_position: bool = True) -> dict:
     """Run every analysis the AI needs. Returns a JSON-safe context dict. Scheduled runs leave the
-    position out, so the call is about the stock alone and the same for every run."""
+    position and portfolio out, so the call is about the stock alone and the same for every run."""
     symbol = normalize_symbol(symbol)
     sentiment_on = include_sentiment and sentiment.status()["enabled"]
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         tech_f = pool.submit(technical.analyze, symbol, period, 14, 12, 26, 20, 2.0)
         fund_f = pool.submit(fundamentals.analyze, symbol)
         pred_f = pool.submit(predictive.quick, symbol)
         sent_f = pool.submit(sentiment.analyze, symbol, 7, "both") if sentiment_on else None
+        macro_f = pool.submit(_optional, macro.context)
+        val_f = pool.submit(_optional, valuation.analyze, symbol, username)
         tech, fund, pred = tech_f.result(), fund_f.result(), pred_f.result()
+        market_ctx, val = macro_f.result(), val_f.result()
         sent, sent_error = None, None
         if sent_f:
             try:
@@ -221,6 +250,9 @@ def build_context(username: str, symbol: str, period: str, include_sentiment: bo
         "sentiment": sent_light,
         "sentiment_status": {"requested": include_sentiment, "enabled": sentiment.status()["enabled"], "error": sent_error},
         "position": _portfolio_position(username, symbol) if include_position else None,
+        "portfolio": _optional(portfolio_fit, username, symbol, fund["profile"].get("industry")) if include_position else None,
+        "market": market_ctx,
+        "valuation": val,
         "scores": _scores(tech, fund, pred, sent),
         "ai_available": GEMINI_AVAILABLE and is_gemini_api_configured(),
     }
@@ -239,6 +271,9 @@ class Assessment(BaseModel):
     recommendation: Literal["BUY", "HOLD", "SELL"] = Field(
         description=f"BUY: expected to beat the S&P 500 by more than {FLAT_BAND:g} percentage point over the time horizon; "
                     f"SELL: expected to lag it by more than that; HOLD: neither, or no clear edge")
+    expected_excess_return: float = Field(
+        description="Expected return relative to the S&P 500 over the time horizon, in percentage points (e.g. 6 or -4). "
+                    f"Consistent with the call: above +{FLAT_BAND:g} for BUY, below -{FLAT_BAND:g} for SELL, in between for HOLD")
     confidence: int = Field(ge=1, le=10, description="Probability in tenths that the call proves right by that definition "
                             "(7 = 70%; 5 = a coin flip)")
     time_horizon: Literal["Short-term", "Medium-term", "Long-term"] = Field(
@@ -382,16 +417,34 @@ def _prompt(ctx: dict) -> str:
                     if s.get("price") and s.get("price_move_share") is not None else []),
                   "- Research finds news tone predicts returns only weakly and for a day or two; treat it as context, not a forecast.",
                   *[f"- \"{h['title']}\" ({h['source']}, {h['sentiment'].lower()})" for h in s.get("headlines", [])[:5]]]
+    lines += valuation.prompt_lines(ctx.get("valuation"))
+    backdrop = macro.prompt_lines(ctx.get("market"), f["profile"].get("sector"))
+    if backdrop:
+        lines += ["", *backdrop]
     pos = ctx.get("position")
     if pos:
         lines += ["", "CURRENT POSITION",
                   f"- {pos['quantity']:.2f} shares at average cost {_fmt(pos['avg_cost'])} {pos['currency']}",
-                  f"- Unrealized {_fmt(pos['unrealized_pct'], '+.2f', '%')}"]
+                  f"- Unrealized {_fmt(pos['unrealized_pct'], '+.2f', '%')} (the purchase price says nothing about where the stock goes next)"]
+    fit = ctx.get("portfolio")
+    if fit:
+        lines += ["", "PORTFOLIO FIT (for the position advice; the recommendation itself is about the stock)"]
+        if fit["weight"] is not None:
+            lines.append(f"- {ctx['symbol']} is {fit['weight']:.1f}% of the portfolio and {_fmt(fit['risk_share'], '.1f', '%')} of its risk; "
+                         f"correlation with the rest of the portfolio {_fmt(fit['corr_to_rest'], '.2f')}")
+        largest = ", ".join(f"{x['symbol']} {x['weight']:.0f}%" for x in fit["largest"])
+        lines.append(f"- {fit['industry'] or 'Its industry'} is {fit['industry_weight']:.1f}% of the portfolio; "
+                     f"largest holdings {largest}; "
+                     f"{fit['holdings']} holdings behave like about {_fmt(fit['effective_bets'], '.1f')} independent bets; "
+                     f"portfolio beta {_fmt(fit['beta'], '.2f')}")
+        lines.append("- Above 20% in one stock or 30% in one industry is concentrated; size advice to the whole portfolio.")
     lines += ["", "WHAT THE CALL MEANS (it will be scored this way)",
               f"- BUY: you expect {ctx['symbol']} to beat the S&P 500 by more than {FLAT_BAND:g} percentage point over the time "
               f"horizon. SELL: you expect it to lag the S&P 500 by more than that. HOLD: neither, or the evidence gives no clear edge.",
               "- Time horizon: Short-term about 3 months, Medium-term about 1 year, Long-term about 3 years.",
               "- Confidence: the probability, in tenths, that the call proves right by this definition (7 = 70%, 5 = a coin flip).",
+              "- Expected excess return: your central estimate of the stock's return minus the S&P 500's over the horizon, in "
+              "percentage points. It ranks this call against others, HOLDs included, so give a real estimate rather than 0.",
               "", "Weigh where the signals agree or diverge. Be specific and concise; do not invent data that is not given, "
               "and skip any section above that is missing rather than guessing at it."]
     return "\n".join(lines)
@@ -405,6 +458,7 @@ def _gemini(prompt: str) -> tuple[Assessment, str, int | None, int | None]:
         raise RuntimeError("GEMINI_API_KEY is not configured in .env.")
     from google import genai
 
+    usage.acquire(usage.estimate_tokens(prompt))
     client = genai.Client(api_key=get_gemini_api_key())
     response = client.models.generate_content(
         model=MODEL,
@@ -462,20 +516,26 @@ def model_name(provider: str) -> str:
     return MODEL if provider == "gemini" else get_ollama_model()
 
 
-def generate(username: str, ctx: dict, provider: str = "gemini", source: str = "manual", run: str | None = None) -> dict:
+def generate(username: str, ctx: dict, provider: str = "gemini", source: str = "manual", run: str | None = None,
+             held: bool | None = None, in_list: bool | None = None) -> dict:
     """Ask the model for an assessment and append it to the history. ``source`` is "manual" or
-    "scheduled"; ``run`` ties together the calls of one scheduled run."""
-    prompt = _prompt(ctx)
+    "scheduled"; ``run`` ties together the calls of one scheduled run. ``held`` (you held the stock;
+    by default, whether the context has a position) and ``in_list`` (it's on the scheduled fixed list)
+    let the Track Record tell your holdings from the fixed list."""
+    # With privacy on, Gemini gets the stock's data without the user's position or portfolio.
+    prompt = _prompt(privacy.context(ctx) if privacy.is_private(username, provider) else ctx)
     model = model_name(provider)
+    # Personal details that slipped into the data are hidden from Gemini and put back in its answer.
+    redactor = privacy.redactor(username, strict=True) if provider == "gemini" else None
     try:
-        result, text, input_tokens, output_tokens = PROVIDERS[provider](prompt)
+        result, text, input_tokens, output_tokens = PROVIDERS[provider](redactor(prompt) if redactor else prompt)
     except Exception as e:
         usage.log_call(model, prompt, "", "investment_assessment", ctx["symbol"], success=False, error_message=str(e))
         raise RuntimeError(f"{'Gemini' if provider == 'gemini' else 'Local model'} request failed: {e}") from e
     usage.log_call(model, prompt, text, "investment_assessment", ctx["symbol"],
                    input_tokens=input_tokens, output_tokens=output_tokens)
 
-    out = result.model_dump()
+    out = redactor.restore(result.model_dump()) if redactor else result.model_dump()
     pos = ctx.get("position")
     # The timestamp doubles as the record's key, so an evaluation can be attached to it later.
     generated_at = datetime.now().isoformat()
@@ -492,6 +552,7 @@ def generate(username: str, ctx: dict, provider: str = "gemini", source: str = "
         "price_at_signal": ctx["technical"]["quote"]["price"],
         "quote_date": ctx["technical"]["quote"].get("date"),
         "price_target": out["price_target"],
+        "expected_excess": out["expected_excess_return"],
         "time_horizon": out["time_horizon"],
         "strengths": out["strengths"],
         "risks": out["risks"],
@@ -507,6 +568,8 @@ def generate(username: str, ctx: dict, provider: str = "gemini", source: str = "
         "provider": provider,
         "source": source,
         "run": run,
+        "held": bool(pos) if held is None else held,
+        "in_list": in_list,
         "prompt_version": PROMPT_VERSION,
         "rule_inputs": rule_inputs(ctx),
     })

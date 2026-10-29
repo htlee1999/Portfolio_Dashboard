@@ -2,18 +2,23 @@
 
 Each call is scored at fixed checkpoints after it was made, against the S&P 500 over the same days,
 so calls of different ages are judged over the same length of time and a rising market doesn't
-count as skill. Prices are split-adjusted closes, so a later split doesn't turn a BUY into a loss.
+count as skill. Returns are total returns (dividends reinvested) for the stock and for the S&P 500
+(SPY), so a dividend payer isn't penalized. The entry price and targets use split-adjusted closes,
+the prices investors actually saw, so a later split doesn't turn a BUY into a loss.
 """
 
+import math
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 
 from . import market
 from .storage import load_history
 
-BENCHMARK = "^GSPC"
+BENCHMARK = "SPY"
 
 # Checkpoints in trading days after the signal.
 CHECKPOINTS = {5: "1W", 21: "1M", 63: "3M", 126: "6M", 252: "1Y"}
@@ -87,8 +92,10 @@ def _target(rec: dict, closes: pd.Series, i: int, entry: float, split: float) ->
 
 
 def _score(rec: dict, closes: pd.Series | None, bench: pd.Series | None, current: float | None,
-           bench_now: float | None) -> dict:
-    """Entry, checkpoint returns, return since the signal, the target and (for BUYs) the daily path."""
+           bench_now: float | None, total: pd.Series | None = None) -> dict:
+    """Entry, checkpoint returns, return since the signal, the target and (for BUYs) the daily path.
+    ``closes`` are split-adjusted closes (the entry price and target); ``total`` and ``bench`` are
+    dividend-adjusted, for returns. Both scales meet at the latest close, so a live quote extends either."""
     out = {"entry_date": None, "entry_price": None, "return_pct": None, "benchmark_pct": None,
            "excess_pct": None, "split_factor": 1, "momentum": None, "checkpoints": [], "target": None, "path": None}
     i = _entry_index(closes, rec["timestamp"]) if closes is not None else 0
@@ -99,6 +106,8 @@ def _score(rec: dict, closes: pd.Series | None, bench: pd.Series | None, current
         return out
     entry_day = closes.index[i]
     entry = float(closes.iloc[i])
+    px = total if total is not None and not total.empty and total.index[0] <= entry_day else closes
+    e = float(px.asof(entry_day))
     b_entry = float(bench.asof(entry_day))
     split = _split_factor(rec, entry)
     out.update(entry_date=entry_day.date().isoformat(), entry_price=entry, split_factor=split)
@@ -110,23 +119,23 @@ def _score(rec: dict, closes: pd.Series | None, bench: pd.Series | None, current
         point = {"days": days, "label": label, "date": None, "stock": None, "benchmark": None, "excess": None}
         if i + days < len(closes):
             day = closes.index[i + days]
-            stock, b = _pct(float(closes.iloc[i + days]), entry), _pct(float(bench.asof(day)), b_entry)
+            stock, b = _pct(float(px.asof(day)), e), _pct(float(bench.asof(day)), b_entry)
             point.update(date=day.date().isoformat(), stock=stock, benchmark=b, excess=stock - b)
         out["checkpoints"].append(point)
 
     now = current if current is not None else float(closes.iloc[-1])
     b_now = bench_now if bench_now is not None else float(bench.iloc[-1])
-    out["return_pct"], out["benchmark_pct"] = _pct(now, entry), _pct(b_now, b_entry)
+    out["return_pct"], out["benchmark_pct"] = _pct(now, e), _pct(b_now, b_entry)
     out["excess_pct"] = out["return_pct"] - out["benchmark_pct"]
     out["target"] = _target(rec, closes, i, entry, split)
 
     if rec.get("recommendation") == "BUY":
         # Growth of 1 in the stock and in the benchmark from the entry close, for the "follow every BUY" curve.
         held = closes.iloc[i:]
-        path = [[d.date().isoformat(), float(c) / entry, float(bench.asof(d)) / b_entry] for d, c in held.items()]
+        path = [[d.date().isoformat(), float(px.asof(d)) / e, float(bench.asof(d)) / b_entry] for d in held.index]
         today = date.today().isoformat()
         if current is not None and path[-1][0] < today:
-            path.append([today, now / entry, b_now / b_entry])
+            path.append([today, now / e, b_now / b_entry])
         out["path"] = path
     return out
 
@@ -219,6 +228,8 @@ def build(username: str, horizon: int | str = 21) -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         prices = dict(zip(tickers, pool.map(market.price, tickers)))
         closes = dict(zip(tickers, pool.map(market.raw_closes, tickers)))
+        totals = dict(zip(tickers, pool.map(lambda t: market.closes(t, "5y"), tickers)))
+    bench = totals.get(BENCHMARK) if totals.get(BENCHMARK) is not None else closes.get(BENCHMARK)
 
     signals = []
     for i, h in enumerate(history):
@@ -233,7 +244,8 @@ def build(username: str, horizon: int | str = 21) -> dict:
             "current_price": prices.get(h["symbol"]),
             "price_target": h.get("price_target"),
             "time_horizon": h.get("time_horizon"),
-            **_score(h, closes.get(h["symbol"]), closes.get(BENCHMARK), prices.get(h["symbol"]), prices.get(BENCHMARK)),
+            **_score(h, closes.get(h["symbol"]), bench, prices.get(h["symbol"]), prices.get(BENCHMARK), totals.get(h["symbol"])),
+            "expected_excess": h.get("expected_excess"),
             "strengths": h.get("strengths", []),
             "risks": h.get("risks", []),
             "reasoning": h.get("reasoning", ""),
@@ -246,6 +258,10 @@ def build(username: str, horizon: int | str = 21) -> dict:
             "provider": h.get("provider", "gemini"),
             "source": h.get("source", "manual"),
             "run": h.get("run"),
+            # Before these were saved: a manual call held the stock if it had a position; a scheduled one is
+            # unknown, and every scheduled stock was on the fixed list.
+            "held": h.get("held", h.get("portfolio_context") is not None if h.get("source", "manual") == "manual" else None),
+            "in_list": h.get("in_list", True if h.get("source") == "scheduled" else None),
             "prompt_version": h.get("prompt_version", 1),
             "quote_date": h.get("quote_date"),
         }
@@ -260,8 +276,10 @@ def build(username: str, horizon: int | str = 21) -> dict:
         "symbols": symbols,
         "horizon": horizon,
         "flat_band": FLAT_BAND,
-        "benchmark_available": closes.get(BENCHMARK) is not None,
+        "benchmark_available": bench is not None,
         "calibration": calibration(signals),
+        "confidence": confidence_calibration(signals),
+        "ranking": ranking(signals),
         "rules": compare_rules(signals),
         "models": compare_models(signals),
     }
@@ -300,4 +318,90 @@ def calibration(signals: list[dict]) -> dict:
         "lowered": sum(adj < conf for conf, adj, _ in pairs),
         "brier_original": _brier([(conf, right) for conf, _, right in pairs]),
         "brier_adjusted": _brier([(adj, right) for _, adj, right in pairs]),
+    }
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
+    if not n:
+        return None
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return [max(0.0, centre - half) * 100, min(1.0, centre + half) * 100]
+
+
+CONFIDENCE_BUCKETS = [(1, 4, "1–4"), (5, 5, "5"), (6, 6, "6"), (7, 7, "7"), (8, 10, "8–10")]
+
+
+def confidence_calibration(signals: list[dict]) -> dict:
+    """Whether stated confidence matches how often calls proved right: scored BUY and SELL calls grouped by
+    confidence, each with its stated probability and actual hit rate. A calibrated model's 7s are right 70%
+    of the time."""
+    scored_ = [s for s in signals if s["outcome"] in ("Correct", "Wrong") and s["confidence"]]
+    rows = []
+    for lo, hi, label in CONFIDENCE_BUCKETS:
+        sel = [s for s in scored_ if lo <= s["confidence"] <= hi]
+        right = sum(s["outcome"] == "Correct" for s in sel)
+        rows.append({"label": label, "n": len(sel),
+                     "stated": sum(s["confidence"] for s in sel) / len(sel) * 10 if sel else (lo + hi) * 5,
+                     "actual": right / len(sel) * 100 if sel else None, "ci": _wilson(right, len(sel))})
+    return {"rows": rows, "n": len(scored_),
+            "brier": _brier([(s["confidence"], s["outcome"] == "Correct") for s in scored_])}
+
+
+# Fewest scored calls in a run for its ranking to count.
+MIN_RANKED = 5
+
+
+def _predicted(s: dict) -> float | None:
+    """How strongly the call expects the stock to beat the S&P 500: its stated expected excess return
+    (prompt version 3 on), or its confidence signed by direction for older calls (HOLD = 0)."""
+    if s.get("expected_excess") is not None:
+        return float(s["expected_excess"])
+    if s["confidence"] is None:
+        return None
+    return {"BUY": 1, "SELL": -1}.get(s["recommendation"], 0) * s["confidence"]
+
+
+def ranking(signals: list[dict]) -> dict:
+    """How well each scheduled run ranked its stocks, HOLDs included: the rank correlation (information
+    coefficient) between how strongly each call expected to beat the S&P 500 and how it did at the
+    scoring checkpoint, and the gap between the calls above and below the run's median. Research treats a mean IC of
+    0.05 as useful; it needs many runs to tell from zero."""
+    groups: dict[tuple, list[dict]] = {}
+    for s in signals:
+        if s["run"] and s["score_excess"] is not None and _predicted(s) is not None:
+            groups.setdefault((s["run"], s["model"]), []).append(s)
+    runs = []
+    for (run, model), rows in sorted(groups.items()):
+        if len(rows) < MIN_RANKED:
+            continue
+        pred = np.array([_predicted(s) for s in rows])
+        real = np.array([s["score_excess"] for s in rows])
+        if np.ptp(pred) == 0:
+            continue  # every call the same strength: nothing ranked
+        ic = float(spearmanr(pred, real).statistic)
+        # Calls above the run's median strength against those below it; ties at the median sit out,
+        # so the many HOLDs of older calls don't land on either side by chance.
+        mid = np.median(pred)
+        top, bottom = pred > mid, pred < mid
+        # Most calls tied at one end: compare that end with the rest (the spread of strengths is non-zero).
+        if not top.any():
+            top, bottom = pred == pred.max(), pred < pred.max()
+        elif not bottom.any():
+            top, bottom = pred > pred.min(), pred == pred.min()
+        runs.append({"run": run, "model": model, "n": len(rows), "ic": ic,
+                     "spread": float(real[top].mean() - real[bottom].mean()) if top.any() and bottom.any() else None,
+                     "top": [r["symbol"] for r, t in zip(rows, top) if t], "bottom": [r["symbol"] for r, b in zip(rows, bottom) if b]})
+    ics = np.array([r["ic"] for r in runs if not math.isnan(r["ic"])])
+    spreads = np.array([r["spread"] for r in runs if r["spread"] is not None])
+    k = len(ics)
+    return {
+        "runs": runs[::-1],
+        "count": len(runs),
+        "mean_ic": float(ics.mean()) if k else None,
+        "ic_t": float(ics.mean() / (ics.std(ddof=1) / math.sqrt(k))) if k > 2 and ics.std(ddof=1) > 0 else None,
+        "mean_spread": float(spreads.mean()) if len(spreads) else None,
+        "positive_share": float((spreads > 0).mean() * 100) if len(spreads) else None,
+        "min_ranked": MIN_RANKED,
     }

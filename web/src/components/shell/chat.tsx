@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, MessageCircle, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUp, MessageCircle, RotateCcw, ShieldCheck, Square, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -15,7 +15,9 @@ import { Spinner } from "../ui/feedback";
 type Provider = "local" | "gemini";
 type Providers = Record<Provider, { model: string; problem: string | null }> & { default: Provider };
 type ToolUse = { name: string; args: Record<string, unknown> };
-type Message = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; error?: string; model?: string };
+/** What the server hid from Gemini before sending, by kind (backend/redact.py). */
+type Redacted = { label: string; count: number; text: string }[];
+type Message = { role: "user" | "assistant"; content: string; tools?: ToolUse[]; error?: string; model?: string; redacted?: Redacted };
 
 const TOOL_LABELS: Record<string, string> = {
   get_technicals: "Technicals",
@@ -99,6 +101,15 @@ function Bubble({ message, streaming }: { message: Message; streaming: boolean }
   }
   return (
     <div className="space-y-1.5">
+      {message.redacted && message.redacted.length > 0 && (
+        <div className="flex items-start gap-1.5 text-caption text-label-2">
+          <ShieldCheck className="mt-px size-3.5 shrink-0 text-positive" aria-hidden />
+          <span>
+            Hidden from Gemini: {message.redacted.map((r) => r.text).join(", ")}.
+            Shown here as you wrote them.
+          </span>
+        </div>
+      )}
       {message.tools && message.tools.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {message.tools.map((t, i) => (
@@ -194,6 +205,7 @@ export function ChatLauncher() {
           else if (event.type === "tool") update((m) => ({ ...m, tools: [...(m.tools ?? []), { name: event.name, args: event.args }] }));
           else if (event.type === "error") update((m) => ({ ...m, error: event.message }));
           else if (event.type === "done") update((m) => ({ ...m, model: event.model }));
+          else if (event.type === "redacted") update((m) => ({ ...m, redacted: event.items }));
         }
       }
     } catch (e) {

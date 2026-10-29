@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   Briefcase,
   CandlestickChart,
+  ClipboardCheck,
   Gauge,
   History,
   LayoutGrid,
@@ -11,6 +12,7 @@ import {
   Newspaper,
   ScrollText,
   Settings,
+  ShieldAlert,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +25,8 @@ export const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: "/", label: "Overview", icon: LayoutGrid },
       { href: "/holdings", label: "Holdings", icon: Briefcase },
       { href: "/performance", label: "Performance", icon: Activity },
+      { href: "/risk", label: "Risk", icon: ShieldAlert },
+      { href: "/plan", label: "Plan", icon: ClipboardCheck },
     ],
   },
   {

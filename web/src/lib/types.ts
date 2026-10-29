@@ -1,4 +1,5 @@
-export type User = { username: string; role: "admin" | "user"; email?: string | null };
+/** `gemini_private`: Gemini is kept from the user's positions, portfolio and private pages (on by default). */
+export type User = { username: string; role: "admin" | "user"; email?: string | null; gemini_private?: boolean; private_terms?: string[] };
 
 export type Holding = {
   index: number;
@@ -331,8 +332,24 @@ export type AssessmentContext = {
     unrealized_pct: number | null;
     currency: string;
   } | null;
+  /** How the stock sits in your portfolio (manual assessments only). */
+  portfolio?: PortfolioFit | null;
+  market?: MarketContext | null;
+  valuation?: Valuation | null;
   scores: { axis: string; score: number }[];
   ai_available: boolean;
+};
+
+export type PortfolioFit = {
+  weight: number | null;
+  risk_share: number | null;
+  corr_to_rest: number | null;
+  industry: string | null;
+  industry_weight: number;
+  largest: { symbol: string; weight: number }[];
+  effective_bets: number | null;
+  holdings: number;
+  beta: number | null;
 };
 
 export type AIResult = {
@@ -341,6 +358,8 @@ export type AIResult = {
   confidence: number;
   time_horizon: string;
   price_target: number | null;
+  /** Expected return minus the S&P 500's over the horizon, in percentage points (prompt version 3 on). */
+  expected_excess_return?: number;
   strengths: string[];
   risks: string[];
   position_advice: string;
@@ -430,12 +449,18 @@ export type Signal = {
   rules: Record<RuleKey, Signal["recommendation"] | null>;
   model: string | null;
   provider: "gemini" | "local";
-  /** "scheduled" calls come from the twice-weekly run over a fixed list of stocks. */
+  /** "scheduled" calls come from the twice-weekly run over your holdings and a fixed list of stocks. */
   source: "manual" | "scheduled";
   /** Scheduled run the call belongs to; both models' calls in a comparison run share it. */
   run: string | null;
+  /** Whether you held the stock when the call was made; null for scheduled calls from before this was saved. */
+  held: boolean | null;
+  /** Whether the stock is on the scheduled run's fixed list; null for calls run by you. */
+  in_list: boolean | null;
   /** 1 for calls made before the prompt defined BUY, SELL and confidence. */
   prompt_version: number;
+  /** Expected return vs the S&P 500 in percentage points, stated with the call (prompt version 3 on). */
+  expected_excess: number | null;
   outcome: "Correct" | "Wrong" | "Flat" | "Neutral" | "Pending";
   strengths: string[];
   risks: string[];
@@ -473,8 +498,28 @@ export type TrackRecord = {
   flat_band: number;
   benchmark_available: boolean;
   calibration: Calibration;
+  confidence: ConfidenceCalibration;
+  ranking: Ranking;
   rules: RuleComparison;
   models: ModelComparison;
+};
+
+/** Scored BUY/SELL calls by stated confidence: the probability claimed against how often they were right. */
+export type ConfidenceCalibration = {
+  rows: { label: string; n: number; stated: number; actual: number | null; ci: [number, number] | null }[];
+  n: number;
+  brier: number | null;
+};
+
+/** How well each scheduled run ranked its stocks, HOLDs included. */
+export type Ranking = {
+  runs: { run: string; model: string; n: number; ic: number; spread: number | null; top: string[]; bottom: string[] }[];
+  count: number;
+  mean_ic: number | null;
+  ic_t: number | null;
+  mean_spread: number | null;
+  positive_share: number | null;
+  min_ranked: number;
 };
 
 /** Scored BUY/SELL calls grouped by evaluation verdict, and Brier scores of original vs adjusted confidence. */
@@ -497,7 +542,8 @@ export type Usage = {
   daily: { date: string; calls: number; tokens: number; cost: number }[];
   operations: { name: string; calls: number; tokens: number; cost: number }[];
   symbols: { name: string; calls: number; tokens: number; cost: number }[];
-  rate: { minute: number; hour: number; day_tokens: number; limits: { minute: number; hour: number; day_tokens: number } };
+  /** Gemini against its three limits: requests and tokens in the last minute, requests since midnight Pacific. */
+  rate: { rpm: number; tpm: number; rpd: number; limits: { rpm: number; tpm: number; rpd: number }; resets_at: string };
   recent: { timestamp: string; model: string; operation: string; symbol: string | null; total_tokens: number; cost_usd: number; success: boolean; error_message: string | null }[];
 };
 
@@ -509,6 +555,8 @@ export type RunStatus = {
   started: string;
   providers: ("local" | "gemini")[];
   total: number;
+  /** How many of the run's stocks are your holdings (missing on runs from before holdings were added). */
+  held?: number;
   done: number;
   current: string | null;
   ok: number;
@@ -527,6 +575,10 @@ export type ScheduledRuns = {
   model: string;
   /** Stocks per hourly chunk, and the first and last hour chunks start. */
   chunk: number;
+  /** What the next run covers: your holdings (assessed first), the fixed list's size, and the stocks in all. */
+  held: string[];
+  list_size: number;
+  total: number;
   hours: [number, number];
   /** Why the local model can't run right now, or null when it can. */
   local_problem: string | null;
@@ -539,6 +591,8 @@ export type ScheduledRuns = {
     skipped: string[];
     /** Stocks in the run; null for runs from before chunking. */
     total: number | null;
+    /** How many of them were your holdings. */
+    held: number;
     ok: number;
     failed: number;
     errors: { symbol: string; provider: string | null; error: string }[];
@@ -630,4 +684,285 @@ export type RetroMarkets = {
   }[];
   growth: ({ date: string } & Record<string, number | string | null>)[];
   method: { min_days: number; exclude_shift_days: number; tests_run: number };
+};
+
+/* ── Sales and actual returns ── */
+
+export type SaleLot = { Purchase_Date: string; Purchase_Price: number; Quantity: number; Currency: string };
+
+export type Sale = {
+  id: string;
+  type: "SELL";
+  Symbol: string;
+  Quantity: number;
+  Price: number;
+  Fees: number;
+  Date: string;
+  Currency: string;
+  lots: SaleLot[];
+  cost: number;
+  proceeds: number;
+  realized: number;
+  created: string;
+};
+
+export type Returns =
+  | { base_currency: string; empty: true }
+  | {
+      base_currency: string;
+      empty: false;
+      start: string;
+      years: number;
+      summary: {
+        bought: number;
+        sold: number;
+        value: number;
+        dividends: number;
+        dividends_ttm: number;
+        realized: number;
+        unrealized: number;
+        total_gain: number;
+        twr_pct: number;
+        twr_annual_pct: number | null;
+        irr_pct: number | null;
+        benchmark_twr_pct: number;
+        benchmark_irr_pct: number | null;
+        benchmark_value: number;
+        value_added: number;
+      };
+      series: { date: string; value: number; with_income: number; net_invested: number; benchmark_value: number; twr: number; benchmark_twr: number }[];
+      dividends: {
+        by_symbol: { symbol: string; amount: number }[];
+        by_year: { year: string; amount: number }[];
+        recent: { symbol: string; date: string; per_share: number; shares: number; amount: number; currency: string }[];
+      };
+      realized: {
+        id: string;
+        symbol: string;
+        date: string;
+        quantity: number;
+        price: number;
+        fees: number;
+        currency: string;
+        proceeds: number;
+        cost: number;
+        gain: number;
+        gain_pct: number | null;
+        gain_base: number;
+        held_days: number | null;
+      }[];
+      missing: string[];
+      benchmark: string;
+    };
+
+/* ── Portfolio risk ── */
+
+export type RiskFlag = { severity: "warning" | "info"; kind: string; message: string };
+
+export type RiskHolding = {
+  symbol: string;
+  name: string;
+  value: number;
+  weight: number;
+  sector: string;
+  industry: string;
+  country: string;
+  fund: boolean;
+  currency: string;
+  vol: number | null;
+  beta: number | null;
+  risk_share: number | null;
+  corr_to_rest: number | null;
+  history_days: number;
+};
+
+export type RiskPortfolio = {
+  vol: number;
+  beta: number | null;
+  var95: number;
+  var99: number;
+  cvar95: number;
+  var95_amount: number;
+  cvar95_amount: number;
+  diversification_ratio: number | null;
+  effective_bets: number | null;
+  hhi_bets: number;
+  avg_corr: number | null;
+  bench_vol: number;
+  max_drawdown: number;
+  drawdown_from: string;
+  drawdown_to: string;
+  current_drawdown: number;
+  bench_max_drawdown: number;
+  holdings_used: number;
+};
+
+export type Exposure = { name: string; weight: number; benchmark?: number | null };
+
+export type Scenario = {
+  name: string;
+  start: string;
+  end: string;
+  benchmark: number;
+  portfolio: number;
+  loss: number;
+  estimated: number;
+  rows: { symbol: string; return: number; estimated: boolean }[];
+};
+
+export type Risk = {
+  total_value: number;
+  base_currency: string;
+  window_days: number;
+  excluded: string[];
+  as_of: string;
+  empty?: boolean;
+  portfolio: RiskPortfolio | null;
+  holdings: RiskHolding[];
+  correlation: { symbols: string[]; matrix: number[][] } | null;
+  exposure: { sector: Exposure[]; industry: Exposure[]; currency: Exposure[]; country: Exposure[] } | null;
+  scenarios: Scenario[];
+  drawdown: { date: string; portfolio: number; benchmark: number }[] | null;
+  flags: RiskFlag[];
+};
+
+export type WhatIfSide = RiskPortfolio & {
+  total_value: number;
+  flags: RiskFlag[];
+  top_industry: Exposure | null;
+  holdings: Record<string, RiskHolding>;
+  worst_scenario: Scenario | null;
+};
+
+export type WhatIf = {
+  base_currency: string;
+  trades: { symbol: string; amount: number }[];
+  symbols: string[];
+  before: WhatIfSide | null;
+  after: WhatIfSide | null;
+};
+
+/* ── Market backdrop ── */
+
+export type MarketReading = {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  detail: string | null;
+  lean: "supportive" | "neutral" | "headwind";
+  rule: string;
+};
+
+export type MarketContext = {
+  as_of: string;
+  regime: "risk-on" | "mixed" | "risk-off";
+  supportive: number;
+  headwinds: number;
+  readings: MarketReading[];
+  sectors: { symbol: string; name: string; return_3m: number; return_12m: number | null; vs_spy_3m: number | null }[];
+  spy_3m: number | null;
+  spy_12m: number | null;
+};
+
+/* ── Valuation anchors ── */
+
+export type PeerRow = {
+  key: string;
+  label: string;
+  unit: "x" | "fraction";
+  better: "lower" | "higher";
+  value: number | null;
+  median: number | null;
+  n: number;
+  /** Share of peers the company beats on this measure. */
+  rank: number | null;
+  vs_median: number | null;
+};
+
+export type Valuation = {
+  symbol: string;
+  peers: {
+    source: "finnhub" | "portfolio";
+    industry: string | null;
+    peers: ({ symbol: string; name: string; market_cap: number | null } & Record<string, number | string | null>)[];
+    rows: PeerRow[];
+  };
+  anchor: {
+    currency: string;
+    discount_rate: number;
+    discount_inputs: { risk_free: number; beta: number | null; premium: number; clamped: boolean };
+    terminal_growth: number;
+    fcf: number | null;
+    enterprise_value: number | null;
+    implied_growth: number | null;
+    sensitivity: { rate: number; growth: number | null }[];
+    history: { revenue_cagr: number | null; fcf_cagr: number | null; eps_growth_next_year: number | null; years: number };
+    yields: { earnings: number | null; forward_earnings: number | null; fcf: number | null; dividend: number | null; shareholder: number | null; treasury_10y: number };
+    yield_gap: number | null;
+    note: string | null;
+  };
+};
+
+/* ── Plan ── */
+
+export type Thesis = { thesis: string; sell_if: string[]; review_date: string | null; created: string; updated: string };
+
+export type AlertKind = "price_above" | "price_below" | "below_cost" | "weight_above" | "drawdown" | "estimate_cut";
+
+export type AlertRule = { id: string; symbol: string; kind: AlertKind; value: number; note: string | null; created: string };
+
+export type Plan = {
+  targets: Record<string, number>;
+  band: number;
+  watchlist: string[];
+  journal: Record<string, Thesis>;
+  alerts: AlertRule[];
+};
+
+export type PlanQuote = {
+  symbol: string;
+  name: string;
+  currency: string;
+  price: number | null;
+  change_pct: number | null;
+  high_52w: number | null;
+  from_high: number | null;
+  next_earnings: string | null;
+  estimate_90d: number | null;
+  forward_pe: number | null;
+  target_mean: number | null;
+  recommendation: string | null;
+};
+
+export type LastCall = { timestamp: string; recommendation: "BUY" | "HOLD" | "SELL"; confidence: number | null; source: string };
+
+export type Triggered = { kind: "rule" | "earnings" | "review" | "drift"; symbol: string | null; message: string; severity: "warning" | "info"; rule: string | null };
+
+export type PlanStatus = {
+  base_currency: string;
+  total_value: number;
+  band: number;
+  targeted: number;
+  triggered: Triggered[];
+  rebalance: { symbol: string; weight: number; target: number | null; value: number; drift: number | null; trade: number | null; shares: number | null; price: number | null; currency: string }[];
+  calendar: { symbol: string; date: string; days: number; held: boolean; watching: boolean }[];
+  watchlist: (PlanQuote & { last_call: LastCall | null; held: boolean; thesis: boolean })[];
+  holdings: {
+    symbol: string;
+    quantity: number;
+    avg_cost: number | null;
+    value_base: number;
+    weight: number;
+    currency: string;
+    price: number;
+    quote: PlanQuote | null;
+    thesis: Thesis | null;
+    last_call: LastCall | null;
+    alerts: AlertRule[];
+  }[];
+  alerts: (AlertRule & { label: string; unit: "price" | "pct" })[];
+  kinds: Record<AlertKind, { label: string; unit: "price" | "pct" }>;
+  as_of: string;
+  review_soon: string[];
 };

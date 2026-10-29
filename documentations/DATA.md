@@ -10,6 +10,8 @@ data/
 ├── scheduled_runs.json                # summary of each scheduled run (last 200)
 ├── scheduled_status.json              # progress of the current or last scheduled run
 ├── portfolio_<username>.json          # holdings, one file per user
+├── transactions_<username>.json       # sales, one file per user
+├── plan_<username>.json               # target weights, watchlist, theses and alert rules
 ├── recommendation_history_<username>.json   # AI assessments, one file per user
 ├── assessment_inputs_<username>.jsonl       # each assessment's full prompt and context, one line per call
 ├── logs/scheduled.log                 # output of scheduled runs
@@ -39,6 +41,60 @@ Files from older versions (`portfolio.json`, `exports/`, and so on) are ignored 
 ```
 
 Each entry is one purchase lot, and the same symbol may appear many times. `Symbol` is stored in normalized form (see `config.TICKER_ALIASES`). `Currency` is the currency the lot was bought in, which is also the currency its price is quoted in.
+
+## `transactions_<username>.json`
+
+An array of sales, appended by **Holdings → Record Sale**. The lots in `portfolio_<username>.json` stay the shares you hold now; a sale takes shares from the oldest lots first and records the pieces it took, so it can be undone and the original purchases rebuilt for Performance's actual returns.
+
+```json
+[
+  {
+    "id": "20261026_174507_0",
+    "type": "SELL",
+    "Symbol": "KO",
+    "Quantity": 15.0,
+    "Price": 65.0,
+    "Fees": 5.0,
+    "Date": "2024-06-03",
+    "Currency": "USD",
+    "lots": [
+      { "Purchase_Date": "2022-01-05", "Purchase_Price": 50.0, "Quantity": 10.0, "Currency": "USD" },
+      { "Purchase_Date": "2023-01-05", "Purchase_Price": 60.0, "Quantity": 5.0, "Currency": "USD" }
+    ],
+    "cost": 800.0,
+    "proceeds": 970.0,
+    "realized": 170.0,
+    "created": "2026-10-26T17:45:07"
+  }
+]
+```
+
+`proceeds` is quantity × price − fees; `realized` is proceeds − cost, all in the lots' currency. Deleting a sale (the undo button) adds its `lots` back. If you edit lots by hand after a sale, an undo adds the shares back as a new lot when the original lot is gone.
+
+## `plan_<username>.json`
+
+```json
+{
+  "targets": { "AMD": 25, "NVDA": 15 },
+  "band": 5.0,
+  "watchlist": ["KO", "ASML"],
+  "journal": {
+    "AMD": {
+      "thesis": "Data-centre GPU share gains",
+      "sell_if": ["Data-centre revenue growth below 20% for two quarters"],
+      "review_date": "2027-01-31",
+      "created": "2026-10-26T18:00:00",
+      "updated": "2026-10-26T18:00:00"
+    }
+  },
+  "alerts": [
+    { "id": "3f9c0a1b2d4e", "symbol": "AMD", "kind": "below_cost", "value": 20, "note": null, "created": "2026-10-26T18:01:00" }
+  ],
+  "last_updated": "2026-10-26T18:01:00"
+}
+```
+
+`targets` are weights in percent; `band` is how many points a holding may drift before Plan suggests a trade. Alert `kind` is one of `price_above`, `price_below`, `below_cost`, `weight_above`, `drawdown` and `estimate_cut` (see the [API reference](API.md#plan)).
 
 ## `settings.json`
 
@@ -76,6 +132,7 @@ An array, appended once per AI assessment:
     "confidence": 7,
     "price_at_signal": 615.73,
     "price_target": 650.0,
+    "expected_excess": 4.0,
     "time_horizon": "Medium-term",
     "strengths": ["..."],
     "risks": ["..."],
@@ -88,7 +145,7 @@ An array, appended once per AI assessment:
     "provider": "gemini",
     "source": "manual",
     "run": null,
-    "prompt_version": 2,
+    "prompt_version": 3,
     "rule_inputs": { "analyst": "buy", "app_score": 64.2 },
     "evaluation": { "verdict": "weakened", "confidence_adjusted": 5, "summary": "...", "findings": [...],
                     "counter_case": "...", "invalidation": [...], "entry_plan": null,
@@ -97,7 +154,7 @@ An array, appended once per AI assessment:
 ]
 ```
 
-`evaluation` is present only when **Evaluate** was run on that assessment. `provider` is `gemini` or `local`; `source` is `manual` or `scheduled`, and scheduled calls carry their `run` (both models' calls in a comparison run share it). `rule_inputs` feeds the Track Record's simple rules. Records from before prompt version 2 have none of the fields from `quote_date` to `rule_inputs`. `timestamp` identifies the record: it equals the assessment's `generated_at`.
+`evaluation` is present only when **Evaluate** was run on that assessment. `provider` is `gemini` or `local`; `source` is `manual` or `scheduled`, and scheduled calls carry their `run` (both models' calls in a comparison run share it). `rule_inputs` feeds the Track Record's simple rules. `expected_excess` (the call's expected return against the S&P 500 in percentage points, from prompt version 3) feeds its ranking. Records from before prompt version 2 have none of the fields from `quote_date` to `rule_inputs`. `timestamp` identifies the record: it equals the assessment's `generated_at`.
 
 Records written by the original Streamlit version have no `steps` or `position_advice`, and `reasoning` holds the full AI response. The Track Record handles both shapes.
 
@@ -124,13 +181,14 @@ An array with one record per AI call, on Gemini or the local model:
 
 ## Backups
 
-**Holdings → Create Backup** writes your holdings and the shared settings:
+**Holdings → Create Backup** writes your holdings, sales, plan and the shared settings:
 
 ```json
-{ "portfolio": [ /* holdings */ ], "settings": { /* settings.json */ }, "backup_created": "..." }
+{ "portfolio": [ /* holdings */ ], "transactions": [ /* sales */ ], "plan": { /* plan_<username>.json */ },
+  "settings": { /* settings.json */ }, "backup_created": "..." }
 ```
 
-To restore, copy the `portfolio` array into `holdings` in **Settings → Data → Edit portfolio JSON**, or import an exported CSV on the Holdings page.
+To restore, copy the `portfolio` array into `holdings` in **Settings → Data → Edit portfolio JSON**, or import an exported CSV on the Holdings page. Copy `transactions` and `plan` into `transactions_<username>.json` and `plan_<username>.json` with the API stopped.
 
 ## Editing by hand
 

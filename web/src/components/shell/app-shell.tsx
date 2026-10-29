@@ -125,7 +125,7 @@ function TabBar() {
           tab.label === "Research"
             ? researchActive
             : tab.label === "More"
-              ? ["/settings", "/performance", "/track-record", "/usage"].some((h) => isActive(pathname, h))
+              ? ["/settings", "/performance", "/risk", "/plan", "/track-record", "/usage"].some((h) => isActive(pathname, h))
               : isActive(pathname, tab.href);
         const Icon = tab.icon;
         return (

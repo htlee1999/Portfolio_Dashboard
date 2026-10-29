@@ -129,6 +129,25 @@ def update_email(body: EmailIn, request: Request, user: dict = Depends(auth.curr
     return {"email": email}
 
 
+class GeminiPrivacyIn(BaseModel):
+    private: bool
+
+
+@router.put("/gemini-privacy")
+def update_gemini_privacy(body: GeminiPrivacyIn, user: dict = Depends(auth.current_user)):
+    auth.set_gemini_private(user["username"], body.private)
+    return {"gemini_private": body.private}
+
+
+class PrivateTermsIn(BaseModel):
+    terms: list[str] = Field(max_length=100)
+
+
+@router.put("/private-terms")
+def update_private_terms(body: PrivateTermsIn, user: dict = Depends(auth.current_user)):
+    return {"private_terms": auth.set_private_terms(user["username"], body.terms)}
+
+
 @router.post("/forgot")
 def forgot_password(body: ForgotIn, request: Request):
     """Start a password reset. The response is the same whether or not the account exists."""

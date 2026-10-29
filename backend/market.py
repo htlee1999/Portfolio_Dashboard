@@ -6,6 +6,7 @@ every request wait for the full network timeout).
 """
 
 import logging
+import re
 import time
 
 import pandas as pd
@@ -59,14 +60,14 @@ def history(symbol: str, period: str = "1y") -> pd.DataFrame | None:
 
 
 @ttl_cache(3600)
-def raw_closes(symbol: str) -> pd.Series | None:
-    """Five years of closes adjusted for splits but not dividends, the prices investors
-    actually paid; dividend-adjusted history understates past valuations."""
+def raw_closes(symbol: str, period: str = "5y") -> pd.Series | None:
+    """Closes adjusted for splits but not dividends, the prices investors actually paid;
+    dividend-adjusted history understates past valuations."""
     symbol = normalize_symbol(symbol)
     if not yahoo_available():
         return None
     try:
-        data = yf.Ticker(symbol).history(period="5y", auto_adjust=False)
+        data = yf.Ticker(symbol).history(period=period, auto_adjust=False)
     except Exception:
         _trip_yahoo()
         return None
@@ -76,6 +77,108 @@ def raw_closes(symbol: str) -> pd.Series | None:
     close = data["Close"].dropna()
     close.index = close.index.tz_localize(None)
     return close
+
+
+@ttl_cache(3600)
+def closes(symbol: str, period: str = "10y") -> pd.Series | None:
+    """Dividend-adjusted (total return) closes with a tz-naive date index."""
+    data = history(symbol, period)
+    if data is None:
+        return None
+    close = data["Close"].dropna()
+    close.index = close.index.tz_localize(None).normalize()
+    return close[~close.index.duplicated(keep="last")]
+
+
+@ttl_cache(3600)
+def dividends(symbol: str) -> pd.Series | None:
+    """Cash dividends per share by ex-date (split-adjusted, like the lots): empty when it pays none,
+    None when Yahoo is unavailable (so the failure isn't cached)."""
+    symbol = normalize_symbol(symbol)
+    if not yahoo_available():
+        return None
+    try:
+        data = yf.Ticker(symbol).dividends
+    except Exception:
+        return None
+    if data is None or data.empty:
+        return pd.Series(dtype=float)
+    data.index = data.index.tz_localize(None).normalize()
+    return data
+
+
+@ttl_cache(3600)
+def fx_history(from_currency: str, to_currency: str) -> pd.Series | None:
+    """Ten years of daily exchange rates (units of ``to_currency`` per ``from_currency``)."""
+    if from_currency == to_currency:
+        return None
+    try:
+        data = yf.Ticker(f"{from_currency}{to_currency}=X").history(period="10y")
+    except Exception:
+        return None
+    if data is None or data.empty:
+        return None
+    close = data["Close"].dropna()
+    close.index = close.index.tz_localize(None).normalize()
+    return close[~close.index.duplicated(keep="last")]
+
+
+def fx_on(from_currency: str, to_currency: str, day) -> float:
+    """The exchange rate on ``day`` (the last one before it on a holiday); today's rate, then 1:1, without history."""
+    if from_currency == to_currency:
+        return 1.0
+    series = fx_history(from_currency, to_currency)
+    if series is not None:
+        rate = series.asof(pd.Timestamp(day))
+        if pd.notna(rate):
+            return float(rate)
+        return float(series.iloc[0])
+    rate = fx_rate(from_currency, to_currency)
+    return rate if rate is not None else 1.0
+
+
+# Yahoo's fund sector keys -> the sector names in company profiles.
+FUND_SECTORS = {
+    "technology": "Technology", "financial_services": "Financial Services", "healthcare": "Healthcare",
+    "consumer_cyclical": "Consumer Cyclical", "communication_services": "Communication Services",
+    "industrials": "Industrials", "consumer_defensive": "Consumer Defensive", "energy": "Energy",
+    "utilities": "Utilities", "realestate": "Real Estate", "basic_materials": "Basic Materials",
+}
+
+
+@ttl_cache(86400)
+def fund_sectors(symbol: str) -> dict[str, float] | None:
+    """A fund's sector weights (fractions summing to about 1), or None for a stock or when unavailable."""
+    symbol = normalize_symbol(symbol)
+    if not yahoo_available():
+        return None
+    try:
+        weights = yf.Ticker(symbol).funds_data.sector_weightings
+    except Exception:
+        return None
+    if not weights:
+        return None
+    return {FUND_SECTORS.get(k, k): float(v) for k, v in weights.items() if v}
+
+
+@ttl_cache(86400)
+def peers(symbol: str) -> list[str] | None:
+    """Finnhub's list of companies in the same industry (US listings), without the company itself."""
+    if not is_finnhub_configured():
+        return None
+    fh = _to_finnhub_symbol(normalize_symbol(symbol))
+    if fh is None:
+        return None
+    try:
+        response = requests.get("https://finnhub.io/api/v1/stock/peers",
+                                params={"symbol": fh, "token": get_finnhub_api_key()}, timeout=8)
+        if response.status_code != 200:
+            return None
+        # Finnhub writes share classes as BRK.B (Yahoo: BRK-B) and foreign listings as 2330.TW, like Yahoo.
+        found = [normalize_symbol(re.sub(r"\.([A-Z])$", r"-\1", s)) for s in response.json() if isinstance(s, str)]
+    except Exception:
+        return None
+    return list(dict.fromkeys(s for s in found if s != normalize_symbol(symbol))) or None
 
 
 @ttl_cache(3600)

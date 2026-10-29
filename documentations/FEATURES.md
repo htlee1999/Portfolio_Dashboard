@@ -7,6 +7,8 @@ Every page also opens with **How to read this page**, a step-by-step walkthrough
 - [Overview](#overview)
 - [Holdings](#holdings)
 - [Performance](#performance)
+- [Risk](#risk)
+- [Plan](#plan)
 - [Technicals](#technicals)
 - [Fundamentals](#fundamentals)
 - [Forecast](#forecast)
@@ -31,6 +33,8 @@ Every page also opens with **How to read this page**, a step-by-step walkthrough
 - **Return %:** calculated in the lot's own currency, so currency moves don't distort a stock's return. **Gain** in the base currency does include currency effects.
 - **Unpriced symbols** are excluded from the totals and listed in a warning banner.
 - **Allocation donut:** shows the 7 largest positions; the rest are grouped as "Other".
+- **Needs attention** lists what [Plan](#plan) flags (alert rules, earnings within a week, reviews due, drift from targets), led by a warning when the largest position is above 20% of the portfolio.
+- **Market backdrop** (`backend/macro.py`) shows the 10-year Treasury yield and its change over a month, the yield curve (10-year minus 3-month), the VIX and its percentile over the past year, the S&P 500 against its 200-day average, high-yield against Treasury bonds over 3 months (a credit-spread proxy), the share of the 11 sector SPDRs above their 200-day average, and the sectors leading and lagging the S&P 500 over 3 months. Each reading leans *supportive*, *neutral* or *headwind* by the rule in its tooltip; the label is *risk-on* when supportive readings outnumber headwinds by 2 or more, *risk-off* the other way, otherwise *mixed*. These describe conditions, not timing.
 
 ## Holdings
 
@@ -38,9 +42,25 @@ Each row is one purchase **lot** (symbol, shares, price, date, currency).
 
 - **Adding:** symbols are normalized on entry. For example `TSMC → TSM`, `Alibaba → BABA`, `BRK.B → BRK-B` (`config.TICKER_ALIASES`).
 - **CSV import** appends rows. The columns are `Symbol, Quantity, Purchase_Price, Purchase_Date, Currency`, and Currency is optional (default USD). Download the template from the empty state or the actions row.
-- **Export** downloads your lots as CSV. **Backup** writes a JSON snapshot to `data/backups/`. **Delete All** asks for confirmation first.
+- **Export** downloads your lots as CSV. **Backup** writes a JSON snapshot (holdings, sales and plan) to `data/backups/`. **Delete All** asks for confirmation first.
+- **Record Sale** (`storage.sell`) takes shares from the oldest lots bought on or before the sale date (FIFO), so lots stay the shares you hold now and every other page reads them unchanged. The sale saves the lot pieces it took, its proceeds (shares × price − fees) and its realized gain, in the lots' currency. The **Sales** list shows each one; undo puts the shares back into their lots. Sales feed [actual returns](#actual-returns).
 
 ## Performance
+
+### Actual returns
+
+`backend/returns.py`
+
+What your money did, rebuilt day by day from every purchase (the lots you hold plus the pieces of lots since sold), every recorded sale, and the dividends paid on the shares you held. Values are in the base currency at each day's exchange rate.
+
+- **Daily ledger:** shares held per stock (purchases add on the purchase date, or the next trading day; sales subtract), valued at split-adjusted closes. Dividends come from Yahoo's per-share history: shares held at the close before each ex-date × the amount, gross of withholding tax, counted as cash received.
+- **Time-weighted return** chains each day's return: (value + dividends − value the day before − money added) ÷ (value the day before + money added that day). Counting new money from the start of its day (a Modified Dietz day) keeps a large purchase's same-day move from swinging the return. It measures the holdings, whatever you added when.
+- **Money-weighted return (IRR)** is the yearly rate at which purchases (out), sales and dividends (in) and today's value net to zero. It measures your results including timing: well below the time-weighted figure means money tended to arrive before weak stretches.
+- **Same trades in SPY** (a public-market equivalent): every purchase also buys SPY (dividends reinvested) with the same money on the same day, and every sale sells the same amount. **Vs the same trades in SPY** = today's value + dividends received − that SPY account. Positive means your picks and timing beat buying the index whenever you invested.
+- **Total gain** = value + sale proceeds + dividends − purchases. Unrealized is against each held lot's cost at its purchase-day exchange rate (Overview uses today's rate for both, so the two differ by currency moves). Realized gains are shown per sale in the lots' currency and in the base currency at the purchase and sale days' rates, with the holding period.
+- **Limits:** lots are taken as entered, so enter them in today's share terms after a split (as Overview assumes). Fees on purchases aren't recorded. A stock with no Yahoo history is left out of the daily values and named in a banner. Cash you hold outside these stocks isn't tracked.
+
+### Current allocation
 
 `backend/portfolio.py → performance()`
 
@@ -53,6 +73,35 @@ Each row is one purchase **lot** (symbol, shares, price, date, currency).
 - **Risk:**
   - Volatility = standard deviation of daily returns × √252, over the trailing 12 months, whatever period is selected.
   - Average daily return is the mean of daily returns over the same window.
+
+## Risk
+
+`backend/risk.py`
+
+Everything uses daily dividend-adjusted returns converted to the base currency, so currency moves count as risk the way they do for your money. Statistics use the last 252 trading days; a holding with under 60 days of history is left out of them and named.
+
+- **What stands out:** warnings when one holding is above 20% of the portfolio, one industry above 30%, a sector above 15% and more than twice its S&P 500 weight, there are fewer than 4 effective bets, or beta is above 1.3. Rules of thumb, not limits.
+- **Volatility** is the portfolio's annualized standard deviation with today's weights (wᵀΣw, Σ the annualized covariance). **Beta** is its covariance with SPY ÷ SPY's variance.
+- **Independent bets** is the diversification ratio squared (Choueifaty & Coignard 2008): (Σ weight × volatility ÷ portfolio volatility)². Holdings that move in lockstep count as one bet; uncorrelated equal holdings count as their number. The average correlation beside it is weighted by each pair's weights.
+- **Bad day (1 in 20)** is historical 1-day 95% value at risk: the loss exceeded on 5% of the last year's days, in money and percent, with the average of those days (expected shortfall).
+- **Weight vs share of risk:** each holding's contribution to variance, wᵢ(Σw)ᵢ ÷ wᵀΣw, so the shares sum to 100%. Also each holding's volatility, beta and correlation with the rest of the portfolio (weighted by the other holdings).
+- **Worst stretch:** today's weights held for 3 years, rebalanced daily: the largest peak-to-trough fall, its dates, and the distance below the peak now, against SPY. A holding listed more recently counts as flat before it listed, which understates the fall.
+- **Exposure:** by sector (funds looked through to their sector weights from Yahoo, set against SPY's), industry, trading currency and country. An ADR trades in USD, so its currency exposure shows as USD.
+- **Correlation:** the pairwise matrix of the last year's daily returns, warm for moving together and cool for offsetting.
+- **Stress tests:** today's holdings through five S&P 500 peak-to-trough selloffs (Q4 2018, COVID, 2022, August 2024, April 2025), from 10 years of history. A holding that wasn't trading then is estimated as its beta × the S&P 500's move and marked. The sliders apply a market move through each holding's beta, or move one industry while the rest stay flat.
+- **What if?** takes up to four trades (amounts in the base currency, buy or sell) and recomputes everything above for the portfolio after them, beside today's: volatility, beta, independent bets, drawdown, value at risk, worst stress test, the largest industry, each traded stock's weight and risk share, and the warnings that remain.
+
+## Plan
+
+`backend/plan.py`, stored in `data/plan_<username>.json`
+
+- **Needs attention** is checked whenever the page (or Overview) loads: your alert rules that have triggered, earnings within 7 days for holdings and watched stocks, theses past their review date, and holdings more than the band (default 5 points) from their target weight, with the trade that restores it.
+- **Why you own it:** for each holding, a thesis, a list of *sell if* conditions and a review date, with the latest AI call beside it. The conditions are free text, so they're shown rather than checked; **AI Assessment → Evaluate** can add its "what would show the call is wrong" list to them. Writing sell conditions before they're tested guards against anchoring on the purchase price and the disposition effect (selling winners, holding losers).
+- **Alerts** per holding: price above or below a level, more than a percentage below your average cost, weight above a percentage, more than a percentage below the 52-week high, or this year's EPS estimate cut by more than a percentage over 90 days.
+- **Target weights:** the weight you want for each holding (or a stock you plan to buy). Each row shows today's weight and the trade, in money and approximate shares, that restores the target. Trades ignore tax and fees.
+- **Earnings calendar** of next report dates for holdings and the watchlist, from Yahoo.
+- **Watchlist:** price and day change, distance from the 52-week high, forward P/E, analyst consensus and mean-target upside, next report and the latest AI call.
+- **Email:** when a scheduled run starts its day (see [Scheduled assessments](#scheduled-assessments)) and SMTP is set up with an email on your account, the same list is emailed to you if anything needs attention.
 
 ## Technicals
 
@@ -111,6 +160,9 @@ A card shows "Needs more history" when there aren't enough days to compute it.
 - **Earnings:** reported EPS against estimates for the last 4 quarters, estimate changes over 30 and 90 days with up and down revisions, and the next report date.
 - **Analyst view:** consensus key and score (1 = strong buy … 5 = sell), mean, low and high targets, and upside to the mean target. The range bar marks the current price and the mean.
 - **Statements:** up to 5 fiscal years of selected rows from the income statement, balance sheet and cash flow, with year-on-year growth and CAGR, shown in compact notation.
+- **Against its peers** (`backend/valuation.py`): up to 8 companies from Finnhub's same-industry list (US and some foreign listings; another listing of the same company is dropped), or, without Finnhub, the stocks you hold or watch in the same Yahoo industry. For P/E, forward P/E, PEG, price/sales, EV/EBITDA, gross and operating margin, quarterly revenue growth and ROE: the company's value, the peer median, and the share of peers it beats (cheaper, or more profitable or faster growing). Negative multiples are left out, and so are sales and EBITDA multiples where Yahoo divides a USD market cap by local-currency figures.
+- **What the price assumes** (reverse DCF): the free-cash-flow growth for five years, fading linearly to 2.5% by year ten and then growing at 2.5% forever, that makes the discounted cash flows equal today's enterprise value (market cap converted to the reporting currency + total debt − cash). Free cash flow is the latest fiscal year's from the cash flow statement (Yahoo's own `freeCashflow` field is a levered estimate well below it). The discount rate is CAPM: the 10-year Treasury yield + beta × 5%, held within 6–14%. It's set against past revenue and free-cash-flow growth and analysts' next-year EPS growth, with the answer at a discount rate 1 point lower and higher. Banks and insurers, and companies with negative free cash flow, get a note instead. The verdict compares with past revenue growth: more than 5 points above it means the price needs faster growth than the company has delivered.
+- **Yields** beside the 10-year Treasury: forward (or trailing) earnings yield, free-cash-flow yield and shareholder yield (dividends paid + buybacks − shares issued, over market cap). The gap between earnings yield and the Treasury yield is a rough equity premium for this stock.
 - **Metric guide & evidence** rates the research behind each measure and cites sources (`web/src/lib/fundamental-evidence.ts`).
 
 ## Forecast
@@ -179,6 +231,9 @@ Calling every headline neutral scores 66% accuracy, because most headlines are. 
 - The forecast models on 2 years of history, whatever lookback is chosen, so they have enough data
 - News sentiment (optional, last 7 days, both sources, up to 2 searches)
 - Your position in the symbol: total shares, average cost, value and unrealized return across all lots
+- The [market backdrop](#overview) and the stock's sector against the S&P 500 over 3 months
+- [Peers and the reverse DCF](#fundamentals)
+- Portfolio fit (`assessment.portfolio_fit`, from [Risk](#risk)): the stock's weight, share of the portfolio's risk and correlation with the rest if you hold it; how much of the portfolio is already in its industry; the largest holdings, effective bets and beta. Manual assessments only
 
 The **Signal profile** radar turns these into 0–100 scores. A missing input scores a neutral 50, and every score is clamped to 0–100.
 
@@ -204,14 +259,16 @@ These are rough rules of thumb for visual comparison, without sector data, so a 
 - The analyst consensus and target
 - Each forecast model's skill against no change, its significance and direction accuracy, and the GARCH range. When no model beats no change, the prompt says to treat the forecasts as no signal
 - Net tone with its interval and verdict, the price change over the window, the share of headlines reporting price moves, a note that tone is context rather than a forecast, and the 5 strongest-toned headlines
-- Your position
+- Valuation anchors: the peer comparison, the growth the price implies against past growth, and earnings and free-cash-flow yields against the Treasury yield
+- The market backdrop, as conditions rather than a timing signal
+- Your position, noting that the purchase price says nothing about where the stock goes next, and the portfolio fit, for the position advice only
 - What the call means, matching how the Track Record scores it: BUY expects the stock to beat the S&P 500 by more than 1 percentage point over the time horizon, SELL to lag it by more than that, HOLD neither. Short-term is about 3 months, Medium-term about 1 year, Long-term about 3 years. Confidence is the probability in tenths that the call proves right (7 = 70%)
 
-Gemini must return JSON that matches a schema: recommendation (BUY, HOLD or SELL), confidence (1–10), time horizon, price target, step-by-step reasoning, strengths, risks, advice on the position, and a summary. Because the output is structured, nothing is guessed from free text.
+Gemini must return JSON that matches a schema: recommendation (BUY, HOLD or SELL), confidence (1–10), time horizon, price target, expected excess return (its central estimate of the stock's return minus the S&P 500's over the horizon, in percentage points, consistent with the call: above +1 for BUY, below −1 for SELL), step-by-step reasoning, strengths, risks, advice on the position, and a summary. The expected excess return lets the Track Record rank every call, HOLDs included. Because the output is structured, nothing is guessed from free text.
 
 Each assessment is:
 
-- appended to `data/recommendation_history_<user>.json`, where it feeds the Track Record. The record includes the model, the prompt version (`assessment.PROMPT_VERSION`; bump it whenever the prompt changes), the date of the quoted price, and the analyst consensus and average app score at the time, for the Track Record's simple rules
+- appended to `data/recommendation_history_<user>.json`, where it feeds the Track Record. The record includes the model, the prompt version (`assessment.PROMPT_VERSION`; bump it whenever the prompt changes), the date of the quoted price, the expected excess return, and the analyst consensus and average app score at the time, for the Track Record's simple rules. Version 3 added the market backdrop, valuation anchors, portfolio fit and the expected excess return
 - appended with its full prompt and context to `data/assessment_inputs_<user>.jsonl` (one JSON line per call, about 15 KB each), so a new prompt version can be replayed on past inputs
 - logged to `data/gemini_usage.json`, with real token counts from the API response
 - exportable as a PDF (summary table, position advice, reasoning, strengths and risks, and the evaluation if one was run)
@@ -254,13 +311,14 @@ First run (9 October 2026, 3 runs per case): errors a screen matched were caught
 
 `backend/batch.py`, scheduled by `schedule.sh`
 
-To build a track record that isn't limited to the stocks you happen to look at, a fixed list of 30 stocks across sectors (`batch.UNIVERSE`) is assessed every **Monday and Friday**. The work is spread out so the Mac is never busy for long: launchd starts the job every hour from 09:00 to 20:00 on those days, and each start assesses the **next 4 stocks** of the day's run, pausing 30 seconds between stocks, then exits. The 30 stocks are done by about 16:00; the later hours catch up on any hour missed while the Mac was asleep. Days, hours, chunk size and pause are set in `batch.py` (`DAYS`, `HOURS`, `CHUNK`, `PAUSE`); run `./schedule.sh install` again after changing them.
+Every **Monday and Friday**, the stocks you hold and a fixed list of 30 stocks across sectors (`batch.UNIVERSE`) are assessed. The fixed list builds a track record that isn't limited to the stocks you happen to like. Your holdings are added so the stocks you own are assessed every run too. They're taken from your portfolio when the day's run starts and go first. A stock that is both held and on the list is assessed once. The work is spread out so the Mac is never busy for long: launchd starts the job every hour from 09:00 to 20:00 on those days, and each start assesses the **next few stocks** of the day's run, pausing 30 seconds between stocks, then exits. A chunk is at least 4 stocks, and more when the run is too long to finish in 8 chunks (37 stocks make chunks of 5), so a run is done by about 16:00. The later hours catch up on any hour missed while the Mac was asleep. Days, hours, chunk size and pause are set in `batch.py` (`DAYS`, `HOURS`, `CHUNKS`, `CHUNK`, `PAUSE`); run `./schedule.sh install` again after changing them.
 
 - **On the local model** (Ollama, `qwen3.5:9b` by default): free and without rate limits. It takes about a minute per stock on an M2 MacBook, so a chunk of 4 takes about 5–6 minutes. Thinking is off by default (`OLLAMA_THINK`); with it on, a stock took 6–7 minutes. Gemini thinks at its "low" level, so a comparison is between the models as configured, not just the weights.
-- **In the last week of the month** (decided when the day's run starts, so every chunk matches), Gemini also assesses each stock from the **same context**, so the Track Record can compare the two models on identical inputs. Calls are paced to 12 a minute for Gemini's free tier.
-- Scheduled calls leave out your position and news sentiment, so each rests on the same kinds of data every run. They're saved to your history with `source: "scheduled"` and the run they belong to, and their full inputs go to `assessment_inputs_<user>.jsonl` as usual. Evaluation (the second look) still runs only when you ask for it, on Gemini.
+- **In the last week of the month** (decided when the day's run starts, so every chunk matches), Gemini also assesses each stock from the **same context**, so the Track Record can compare the two models on identical inputs. Calls wait for room under Gemini's per-minute limits, and if the day's requests are used up, Gemini's stocks wait for a later hour.
+- Scheduled calls leave out your position, portfolio fit and news sentiment, so each rests on the same kinds of data every run. They do include the market backdrop and valuation anchors (peer lookups are cached for an hour, but the first run of a day makes more Yahoo requests).
+- When a day's run starts, anything [Plan](#plan) flags is emailed to the account's address if SMTP is set up; the run's entry records `alerts_emailed`. They're saved to your history with `source: "scheduled"`, the run they belong to, `held` (you held the stock when the run started) and `in_list` (it's on the fixed list), and their full inputs go to `assessment_inputs_<user>.jsonl` as usual. Evaluation (the second look) still runs only when you ask for it, on Gemini.
 - Each day's run has one entry in `data/scheduled_runs.json` (calls saved, failures, anything skipped), updated after every stock; output goes to `data/logs/scheduled.log`. Its progress is kept in `data/scheduled_status.json` while it runs.
-- **Seeing a run:** while a chunk is being assessed, the sidebar shows *Scheduled run 12/30* with the stock being assessed (on phones, a small counter at the top right), on every page. The Track Record's **Scheduled runs** card shows the day's progress and, between chunks, when the next one starts; otherwise the next run and whether it's a comparison week. It warns if Ollama isn't running, if the job isn't installed, or if a day's slots ran out before its run finished, and lists the last 10 runs (hover a row for its errors). Admins can assess the next chunk straight away with **Run next 4**. The status refreshes every 10 seconds during a run and every minute otherwise, and the signals reload when a run finishes.
+- **Seeing a run:** while a chunk is being assessed, the sidebar shows *Scheduled run 12/30* with the stock being assessed (on phones, a small counter at the top right), on every page. The Track Record's **Scheduled runs** card shows the day's progress and, between chunks, when the next one starts; otherwise the next run and whether it's a comparison week. It warns if Ollama isn't running, if the job isn't installed, or if a day's slots ran out before its run finished, and lists your holdings in the next run and the last 10 runs with how many of their stocks were yours (hover a row for its errors). Admins can assess the next chunk straight away with **Run next 5** (the run's chunk size). The status refreshes every 10 seconds during a run and every minute otherwise, and the signals reload when a run finishes.
 - If a stock's data can't be fetched (usually Yahoo rate-limiting), the run waits out the app's 5-minute Yahoo cooldown and tries again, up to 3 times, before counting it as failed.
 - If Ollama isn't running, that hour's chunk is skipped and the run's entry says why; its stocks wait for the next hour. Gemini is never used in place of it.
 
@@ -283,10 +341,10 @@ AI output can be wrong and is not financial advice.
 
 `backend/track_record.py`
 
-Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the same days, so a rising market doesn't count as skill.
+Every saved recommendation is scored against the **S&P 500** (SPY, dividends reinvested) over the same days, so a rising market doesn't count as skill.
 
 - **Entry:** the first close after the call was made (US closes are at 16:00 New York time; saved timestamps are in the server's local time). That is the first price a follower could have traded at. The quote saved with the call can be stale or intraday, and is shown for reference only.
-- **Prices** are split-adjusted closes (five years of history), so a later split doesn't turn a BUY into a loss. Dividends are not included.
+- **Returns** are total returns: dividend-adjusted closes (five years of history) for the stock and for SPY, so a dividend payer isn't penalized against the index. The entry price, targets and momentum use split-adjusted closes, so a later split doesn't turn a BUY into a loss.
 - **Checkpoints:** the return 1 week, 1 month, 3 months, 6 months and 1 year (5, 21, 63, 126 and 252 trading days) after the entry, for the stock and for the S&P 500.
 - **Score at** picks the checkpoint every call is judged at, so calls of different ages are judged over the same length of time. *Stated* uses each call's own horizon: Short-term 3 months, Medium-term 1 year, Long-term 3 years. Until that checkpoint passes, a call is **Pending** and shows its return vs the S&P 500 so far.
 
@@ -302,8 +360,10 @@ Every saved recommendation is scored against the **S&P 500** (`^GSPC`) over the 
 - **"What if you followed every BUY?"** puts $1,000 into each BUY at its entry close and holds it to today. The chart shows the return day by day, against the same money put into the S&P 500 on the same days.
 - **Sold or held?** takes the shares you held when each call was made and compares selling them at the entry close with holding them to today. *Following the call* is the gain from doing what it said: selling for a SELL, keeping the shares for a BUY or HOLD. Calls on the same stock cover the same shares, so the rows don't add up to a total. Share counts are carried through any split; dividends and tax are left out. Each signal shows the same comparison when expanded.
 - **Against simple rules** compares the AI with rules applied to the same stocks and dates, on the AI's calls that have reached the scoring checkpoint (all symbols, ignoring the filters): always BUY; 12-1 month momentum (BUY if the year's return, skipping the latest month, is positive, else SELL), computed from price history; the analyst consensus at the call; and the app's radar scores (BUY at an average of 55 or more, SELL at 45 or less). The last two are saved from prompt version 2 on, so older calls skip them. If the AI doesn't beat these, it isn't adding accuracy.
+- **Does confidence mean anything?** groups scored BUY and SELL calls (all symbols) by stated confidence (1–4, 5, 6, 7, 8–10) and sets the share that were right, with a Wilson 95% range, against the probability claimed. Calibrated calls land on the line. The Brier score covers all of them (0.25 is a coin flip).
+- **Does it rank stocks well?** scores each scheduled run (per model, at least 5 calls past the checkpoint) on how well it ordered its stocks, HOLDs included. Each call's strength is its expected excess return (prompt version 3 on), or for older calls its confidence signed by direction (HOLD = 0). The information coefficient is the Spearman rank correlation between strength and the stock's return vs the S&P 500 at the checkpoint; the spread is the average return of calls above the run's median strength minus those below (ties at the median sit out). It shows the mean IC, its t-statistic across runs, the mean spread and the share of runs with a positive spread. A mean IC around 0.05 is useful in practice and takes many runs to tell from zero.
 - **Gemini vs local model** appears once calls from more than one model exist (all symbols, ignoring the filters). *Head to head* covers the comparison runs, where both models assessed the same stock from the same context: how often they made the same call, and each one's win rate and average return on those pairs. *All calls* covers every call each model made, on different stocks and dates, so the head-to-head is the fairer test.
-- **Source** filter: calls you ran yourself, or scheduled ones. A **Model** filter appears once there is more than one model.
+- **Source** filter: calls you ran yourself, or scheduled ones. **Stocks** filter: your holdings (calls made while you held the stock) or the fixed list. A stock that is both appears under each. Calls on stocks you held have a **Held** badge. Scheduled calls from before holdings were added aren't marked as held. A **Model** filter appears once there is more than one model.
 - **Prompt version** filter appears once calls from more than one prompt version exist. Version 1 is every call made before the prompt defined the call.
 - **By symbol** appears when there is more than one symbol. Repeated calls on one stock move together, so one symbol can carry the whole record.
 - Each signal expands to show the saved quote, the entry close, the return since entry vs the S&P 500, the target, the checkpoints, your position when it was generated, the reasoning and the strengths and risks. Records saved by the original Streamlit version have no separate steps and show their original reasoning text instead.
@@ -337,7 +397,7 @@ Open it with **vs Markets** on the Retrograde page. It tests whether ETFs behave
 `backend/chat.py`, `web/src/components/shell/chat.tsx`
 
 - The round button at the bottom right of every page opens the assistant. Each question is sent with the page's route, title, selected symbol and visible text (up to 12,000 characters), so it can answer about what you're looking at. Charts reach it only as their labels.
-- When the page doesn't have the answer, the model calls the app's analyses as tools: technicals (always on 1 year), fundamentals, forecast models, news sentiment (only when you ask about news, since it spends SERPapi credits), your portfolio, and past AI assessments. Each lookup shows as a chip above the answer. After 4 rounds of lookups it must answer with what it has.
+- When the page doesn't have the answer, the model calls the app's analyses as tools: technicals (always on 1 year), fundamentals, valuation anchors (peers and the reverse DCF), forecast models, news sentiment (only when you ask about news, since it spends SERPapi credits), your portfolio, its risk, your actual returns, your plan (alerts, earnings dates, targets and theses), and past AI assessments. Each lookup shows as a chip above the answer. After 4 rounds of lookups it must answer with what it has. With **AI Privacy** on (Settings), Gemini gets none of the tools that read your own data, and sees the page's text only on stock-analysis pages (Technicals, Fundamentals, Forecast, Sentiment, Retrograde). Personal details in your messages (emails, phone numbers, ID and card numbers, addresses, your hidden words) are replaced with placeholders before they reach Gemini and restored in the answer; a line above the answer says what was hidden.
 - **Qwen** (the local model from `OLLAMA_MODEL`) is the default; switch to **Gemini** in the panel's header. The choice is remembered in the browser. Thinking is off for chat, so local replies take seconds to a minute rather than minutes.
 - The conversation lasts until you reload or press **New chat**; it isn't saved. Calls are logged on the API Usage page as operation `chat`.
 
@@ -348,7 +408,7 @@ Open it with **vs Markets** on the Retrograde page. It tests whether ETFs behave
 - Every AI call is logged, failures included: assessments and evaluations, scheduled runs and chat, on Gemini or the local model. Each record holds the timestamp, model, operation, symbol, input and output tokens, estimated cost and any error.
 - **Token counts** come from the response (Gemini's `usage_metadata`, Ollama's eval counts). Older records and failed calls use an estimate of about 4 characters per token. Gemini's thinking tokens count as output.
 - **Cost** is estimated from `PRICING` (USD per 1K input and output tokens). Models not listed there, such as the local model, cost nothing. Update it when Google changes prices.
-- **Rate-limit meters** show Gemini requests in the last minute and hour, and Gemini tokens used today, against `RATE_LIMITS` (Gemini free-tier defaults). Local-model calls don't count. Adjust them to your plan.
+- **Rate-limit meters** show Gemini's three free-tier limits: requests and tokens in the last minute, and requests since midnight Pacific (when Google resets the daily count; the card shows the next reset in local time). Local-model calls don't count. Every Gemini call waits for room under the per-minute limits and is refused once the day's requests are used up; see [Configuration](CONFIGURATION.md) to change the limits.
 - Export the selected range as CSV. Admins can delete records older than 90 days.
 
 ## Settings
@@ -357,5 +417,7 @@ Open it with **vs Markets** on the Retrograde page. It tests whether ETFs behave
 - **Appearance:** Automatic (follows the OS), Light or Dark. This is stored per browser.
 - **Base currency:** the currency for totals and charts. It's stored in `data/settings.json` and shared by all users.
 - **Data:** lot, symbol and currency counts, and the list of files in `data/`. **Edit portfolio JSON** lets you edit your holdings file directly; it is validated before saving.
+- **Hidden from Gemini:** words to always hide from Gemini, such as your name or employer. Emails, phone numbers, ID, card and account numbers, keys, passwords and addresses are hidden automatically; see [Configuration → Google Gemini](CONFIGURATION.md).
+- **AI Privacy:** **Keep my portfolio from Gemini** (on by default, per user) leaves your position, portfolio and private pages out of everything sent to Gemini; see [Configuration → Google Gemini](CONFIGURATION.md).
 - **Users (admins only):** list accounts and create users or admins.
 - On phones, Settings also links to Performance, Track Record and API Usage, which aren't in the tab bar.

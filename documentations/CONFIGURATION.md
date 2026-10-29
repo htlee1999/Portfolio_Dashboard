@@ -6,8 +6,9 @@ The API reads `.env` from the repository root at startup (`python-dotenv`). Copy
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FINN_API_KEY` | none | Finnhub real-time quotes for US-listed symbols. Without it, every quote comes from Yahoo Finance, which rate-limits aggressively |
+| `FINN_API_KEY` | none | Finnhub real-time quotes for US-listed symbols, and the industry peer lists on Fundamentals. Without it, every quote comes from Yahoo Finance, which rate-limits aggressively, and peers fall back to the stocks you hold or watch |
 | `GEMINI_API_KEY` | none | Enables AI Assessment |
+| `GEMINI_RPM`, `GEMINI_TPM`, `GEMINI_RPD` | `15`, `250000`, `500` | Gemini's limits: requests per minute, tokens per minute, requests per day (free tier for `gemini-3.5-flash-lite`). Raise them on a paid tier |
 | `SERP_API_KEY` | none | Enables Sentiment and the news input to AI Assessment |
 | `SENTIMENT_MODEL` | `mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis` | Hugging Face model that scores headlines. Any model whose labels are positive, neutral and negative works. Needs `torch` and `transformers` |
 | `OLLAMA_URL` | `http://localhost:11434` | Local Ollama server for scheduled assessments and chat |
@@ -20,7 +21,7 @@ The API reads `.env` from the repository root at startup (`python-dotenv`). Copy
 | `ALLOW_SIGNUP` | `1` | Set to `0` to close public sign-up; admins can still create accounts in **Settings → Users** |
 | `TRUST_PROXY` | off | Set to `1` only when the API sits behind a proxy that sets `X-Forwarded-For`, so rate limits apply per real client IP |
 | `API_DOCS` | on (off on Vercel) | Serves interactive API docs at `/docs` |
-| `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email delivery for password resets. Port 465 uses SSL; anything else uses STARTTLS |
+| `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email delivery for password resets and the Plan alert digest sent when a scheduled run starts. Port 465 uses SSL; anything else uses STARTTLS |
 | `APP_URL` | `http://localhost:3000` | Public address of the web app, used to build reset links |
 
 The **web app** reads one variable, from the shell or from `web/.env.local` (Next.js doesn't read the root `.env`):
@@ -43,7 +44,25 @@ The free tier covers real-time quotes for US-listed symbols. Foreign listings (`
 1. Go to [aistudio.google.com](https://aistudio.google.com/), sign in, and choose **Get API key → Create API key**.
 2. Add `GEMINI_API_KEY=…` to `.env`.
 
-The model is `gemini-3.5-flash-lite` (`backend/assessment.py → MODEL`), also used by the evaluation and by chat when you pick Gemini. An assessment's prompt is about 4,000 tokens, plus the response. Free-tier limits and the cost estimates on API Usage are set in `backend/usage.py` (`RATE_LIMITS`, `PRICING`); update them if Google changes its pricing or you're on a paid plan.
+The model is `gemini-3.5-flash-lite` (`backend/assessment.py → MODEL`), also used by the evaluation and by chat when you pick Gemini. An assessment's prompt is about 4,000 tokens, plus the response. The cost estimates on API Usage are set in `backend/usage.py` (`PRICING`); update them if Google changes its pricing.
+
+**Rate limits.** The free tier has three limits, shared by every key in the same Google Cloud project: 15 requests a minute, 250,000 tokens a minute and 500 requests a day for `gemini-3.5-flash-lite`. The daily count resets at midnight Pacific time. Google no longer publishes the numbers in its docs; check yours at [aistudio.google.com/rate-limit](https://aistudio.google.com/rate-limit) and set `GEMINI_RPM`, `GEMINI_TPM` and `GEMINI_RPD` if they differ. Every Gemini request (assessment, evaluation, each round of a chat answer, scheduled runs) checks them first: when the minute is full it waits up to about a minute for room, and when the day's requests are used up it's refused with the reset time instead of failing at Google. The counts come from `data/gemini_usage.json`, so calls made with the same key outside this app aren't seen. An assessment or evaluation is one request; a chat answer is one per tool round, up to 5.
+
+**Privacy.** On the free tier, Google may use prompts and responses to improve its models, and human reviewers may read them (detached from your account first); its terms ask you not to send personal or confidential information. On a paid tier (billing enabled on the key's Cloud project) it doesn't train on them. So **Settings → AI Privacy** (on by default, per user, stored as `gemini_private` in `data/users.json`) keeps your own data away from Gemini (`backend/privacy.py`):
+
+- Assessments and evaluations on Gemini leave out the *Current position* and *Portfolio fit* sections: share count, average cost, unrealized gain, portfolio weight, risk share and your largest holdings. The call is about the stock either way; the position advice becomes general. Your history and saved inputs still keep the full context.
+- Evaluations also withhold the assessment's position advice, which a local-model call may have written with your figures.
+- Gemini chat isn't offered the portfolio, risk, actual returns, plan or past-assessments tools, and sees a page's text only on Technicals, Fundamentals, Forecast, Sentiment and Retrograde.
+
+Prices, financials and headlines still go to Gemini; they're public. The local model always gets everything, since it never leaves the machine.
+
+**Redaction.** Whatever that setting, text bound for Gemini first goes through `backend/redact.py`, which swaps personal details for placeholders such as `[email-1]` and swaps the originals back into the reply, so you read your own words while Gemini never sees them:
+
+- **Chat** (your messages and the page's text): email addresses, phone numbers (international with `+`, US, Singapore 4-4, or after "phone", "mobile" and the like), NRIC/FIN, SSNs and numbers after "passport" or "licence", card numbers (Luhn-checked), IBANs (checksum-checked), account numbers after "account", API keys and values after "password", "PIN" or "token", street addresses, unit numbers and Singapore postal codes, dates of birth after "born" or "DOB", and IP addresses. With AI Privacy on, also share counts ("500 shares") and amounts you tie to yourself ("I bought at $120", "my net worth is 300k"). The chat shows what was hidden above the answer.
+- **Assessments and evaluations**, which are built from market data: only the patterns that can't be mistaken for a figure (emails, keys and passwords, grouped card numbers, IBANs, NRIC/FIN, SSNs).
+- **Your own words**, everywhere: **Settings → Hidden from Gemini** lists words to always hide (matched whole-word, ignoring case), such as your name, family, employer or street, since names can't be found by pattern. Your account email is always included.
+
+Pattern matching is a safety net, not a guarantee: a detail written in an unusual form (a phone number spelled out, an address without a street word) can get through. Tool results (market data) aren't redacted.
 
 **SERPapi**
 1. Sign up at [serpapi.com](https://serpapi.com/). The free plan includes a monthly allowance of searches (250 at the time of writing).

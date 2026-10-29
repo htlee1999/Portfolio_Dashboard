@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from config import PERIOD_LIST, SUPPORTED_CURRENCIES
 
-from .. import portfolio, storage
+from .. import macro, portfolio, returns, risk, storage
 from ..auth import current_user
 from ..utils import clean
 
@@ -21,6 +21,23 @@ class HoldingIn(BaseModel):
     purchase_price: float = Field(gt=0)
     purchase_date: date
     currency: str = "USD"
+
+
+class SellIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    quantity: float = Field(gt=0)
+    price: float = Field(gt=0)
+    sale_date: date
+    fees: float = Field(0, ge=0)
+
+
+class Trade(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    amount: float
+
+
+class WhatIfIn(BaseModel):
+    trades: list[Trade] = Field(min_length=1, max_length=10)
 
 
 class SettingsIn(BaseModel):
@@ -86,6 +103,29 @@ def clear_holdings(user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@router.post("/holdings/sell", status_code=201)
+def sell_holding(body: SellIn, user: dict = Depends(current_user)):
+    if body.sale_date > date.today():
+        raise HTTPException(400, "The sale date can't be in the future")
+    try:
+        return clean(storage.sell(user["username"], body.symbol, body.quantity, body.price,
+                                  body.sale_date.isoformat(), body.fees))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/transactions")
+def list_transactions(user: dict = Depends(current_user)):
+    return {"transactions": sorted(storage.load_transactions(user["username"]), key=lambda t: t.get("Date", ""), reverse=True)}
+
+
+@router.delete("/transactions/{transaction_id}")
+def undo_transaction(transaction_id: str, user: dict = Depends(current_user)):
+    if not storage.undo_sell(user["username"], transaction_id):
+        raise HTTPException(404, "Transaction not found")
+    return {"ok": True}
+
+
 @router.post("/holdings/import")
 async def import_holdings(file: UploadFile = File(...), user: dict = Depends(current_user)):
     try:
@@ -123,3 +163,35 @@ def portfolio_metrics(base: str = "USD", user: dict = Depends(current_user)):
 @router.get("/portfolio/performance")
 def portfolio_performance(base: str = "USD", period: str = "1y", user: dict = Depends(current_user)):
     return clean(portfolio.performance(user["username"], _check_currency(base), _check_period(period)))
+
+
+@router.get("/portfolio/returns")
+def portfolio_returns(base: str = "USD", user: dict = Depends(current_user)):
+    try:
+        return clean(returns.build(user["username"], _check_currency(base)))
+    except LookupError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/portfolio/risk")
+def portfolio_risk(base: str = "USD", user: dict = Depends(current_user)):
+    try:
+        return clean(risk.build(user["username"], _check_currency(base)))
+    except LookupError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/portfolio/whatif")
+def portfolio_what_if(body: WhatIfIn, base: str = "USD", user: dict = Depends(current_user)):
+    try:
+        return clean(risk.what_if(user["username"], _check_currency(base), [t.model_dump() for t in body.trades]))
+    except LookupError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/market/context")
+def market_context(user: dict = Depends(current_user)):
+    ctx = macro.context()
+    if ctx is None:
+        raise HTTPException(502, "Couldn't fetch market data. Yahoo Finance may be rate-limiting; try again shortly.")
+    return clean(ctx)

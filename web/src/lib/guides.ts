@@ -72,11 +72,27 @@ export const GUIDES = {
   },
 
   performance: {
-    intro: "How your current mix of holdings would have performed against the S&P 500, plus its sector spread and risk.",
+    intro: "What your money actually did, from every purchase, sale and dividend; then how your current mix of holdings would have performed against the S&P 500.",
     steps: [
       {
+        title: "Actual returns",
+        body: "Rebuilt day by day from your lots, the sales you record on Holdings and the dividends your shares were paid. Money-weighted (IRR) is the yearly rate your own deposits and withdrawals earned. Time-weighted chains each day's return, so the timing and size of deposits don't count.",
+        meaning: "Time-weighted judges the holdings; money-weighted judges you, timing included. If money-weighted is well below time-weighted, you tended to add money before weak stretches.",
+        caution: "Dividends are before withholding tax. Lots are taken as entered, so enter them in today's share terms after a split.",
+      },
+      {
+        title: "Vs the same trades in SPY",
+        body: "Every purchase also buys SPY with the same money on the same day, and every sale sells the same amount of it. The figure is your holdings plus dividends received, minus that SPY account.",
+        meaning: "Positive means your picks and timing beat simply buying the index whenever you invested. This is the fairest single test of whether stock-picking is paying.",
+        caution: "One period, a handful of stocks: a large gap can come from one big winner. Look at Risk to see how concentrated that is.",
+      },
+      {
+        title: "Dividends and realized gains",
+        body: "Dividends by holding and year, and each sale's gain against the lots it came from (oldest first), in the lot's currency and in your base currency at the exchange rates of the purchase and sale days.",
+      },
+      {
         title: "Pick a period",
-        body: "Choose a range from 1 month to 5 years. Every chart and figure on the page updates.",
+        body: "Choose a range from 1 month to 5 years for the Current allocation section below Actual returns.",
       },
       {
         title: "Growth of 100",
@@ -321,6 +337,78 @@ export const GUIDES = {
     ],
   },
 
+  risk: {
+    intro: "How your holdings move together, which ones drive the swings, how much the portfolio could lose, and what a trade would change.",
+    steps: [
+      {
+        title: "What stands out",
+        body: "Warnings from rules of thumb: one stock above 20% of the portfolio, one industry above 30%, a sector at more than twice its S&P 500 weight, or fewer than 4 independent bets.",
+        meaning: "These are the concentrations that decide most of your result. Each is a prompt to check the position size is deliberate.",
+      },
+      {
+        title: "Volatility, beta, independent bets and a bad day",
+        body: "Volatility is how much the portfolio swings in a year. Beta is how much it has moved for each 1% the S&P 500 moved. Independent bets is the diversification ratio squared: roughly how many unrelated positions your holdings behave like. A bad day is the loss exceeded on 1 trading day in 20 (95% value at risk), with the average of those worst days.",
+        meaning: "Ten stocks that all move together are closer to one bet than ten. Beta above 1 means bigger falls than the market in a selloff.",
+        caution: "All of this comes from the last year of daily returns in your base currency. A calm year understates risk.",
+      },
+      {
+        title: "Weight vs share of risk",
+        body: "Each holding's share of the portfolio's value beside its share of the portfolio's variance, with its beta and its correlation with everything else you hold.",
+        meaning: "A holding whose risk share is much bigger than its weight is volatile, highly correlated with the rest, or both. That's where trimming reduces risk most.",
+      },
+      {
+        title: "Worst stretch",
+        body: "Today's weights held for the last three years: the largest fall from a peak, when it happened, and how far below its peak the portfolio is now, against the S&P 500.",
+        caution: "Holdings listed more recently count as flat before they listed, which understates the drawdown.",
+      },
+      {
+        title: "Exposure",
+        body: "Your money by sector (funds looked through to their holdings' sectors, against the S&P 500), by industry, by trading currency and by country.",
+        meaning: "Sector shows the tilt against the market; industry is where concentration usually hides (several chip makers are one bet on chips).",
+      },
+      {
+        title: "Correlation",
+        body: "How each pair of holdings' daily returns move together. Warm cells move together, cool cells offset, neutral cells are unrelated. Hover a cell for its value.",
+        meaning: "Diversification comes from holdings with low or negative correlation, not from the number of holdings.",
+      },
+      {
+        title: "Stress tests",
+        body: "Today's holdings through five past selloffs, peak to trough of the S&P 500, with the loss in money. A holding that wasn't trading then is estimated from its beta. The sliders apply a market move through each holding's beta, or move one industry while the rest stay flat.",
+        caution: "Past selloffs are examples, not limits; the next one will hit different industries.",
+      },
+      {
+        title: "What if?",
+        body: "Enter trades (buy or sell amounts in your base currency, up to four) to see the portfolio's risk before and after, and the warnings that would remain.",
+        meaning: "Use it before every trade, especially to see whether a new stock adds a real bet or more of what you already own.",
+      },
+    ],
+  },
+  plan: {
+    intro: "Your decisions written down before you need them: why you own each stock, what would make you sell, target weights, a watchlist and alerts.",
+    steps: [
+      {
+        title: "Needs attention",
+        body: "Your alert rules that have triggered, earnings reports within a week, reviews that are due, and holdings more than the band away from their target weight.",
+        meaning: "Start here each visit. Each item links to an AI assessment of that stock.",
+        caution: "It's checked when the page opens. With email set up, the same list is emailed when a scheduled run starts.",
+      },
+      {
+        title: "Why you own it",
+        body: "For each holding: your thesis, the conditions that would make you sell, a review date and price or estimate alerts. The badge is the latest AI call on it.",
+        meaning: "Sell conditions written in advance stop the purchase price and recent moves from deciding for you. An evaluation's “what would show the call is wrong” can be added here from AI Assessment.",
+      },
+      {
+        title: "Target weights",
+        body: "The weight you want each holding to be. The table shows today's weight and the trade (in money and shares) that would restore the target. Add a stock you plan to buy by symbol.",
+        meaning: "Rebalancing to targets sells what has run up and buys what has lagged, which keeps one winner from becoming most of the risk.",
+        caution: "Trades ignore tax and fees, which can make small rebalances not worth it; that's what the band is for.",
+      },
+      {
+        title: "Earnings calendar and watchlist",
+        body: "Next report dates for holdings and watched stocks, and for each watched stock its price, distance from its 52-week high, forward P/E, analyst view and the latest AI call.",
+      },
+    ],
+  },
   usage: {
     intro: "How much the AI features are being used, what they cost, and how close you are to Gemini's rate limits.",
     steps: [
@@ -331,8 +419,8 @@ export const GUIDES = {
       },
       {
         title: "Rate limits",
-        body: "Gemini requests in the last minute and hour, and tokens today, against the free-tier limits.",
-        meaning: "Bars turn amber past half and red past 80%. Near the limit, calls start failing until the window resets.",
+        body: "Gemini's three free-tier limits: requests and tokens in the last minute, and requests today. The daily count resets at midnight Pacific time, shown in your local time.",
+        meaning: "Bars turn amber past half and red past 80%. When a minute is full, Gemini calls wait for it to clear; when the day's requests are used up, they're refused until the reset. Local-model calls don't count.",
       },
       {
         title: "Charts and recent calls",
@@ -343,7 +431,7 @@ export const GUIDES = {
   },
 
   settings: {
-    intro: "Your account, how the app looks, the currency totals are shown in, and your raw data.",
+    intro: "Your account, how the app looks, the currency totals are shown in, what Gemini may see, and your raw data.",
     steps: [
       {
         title: "Account",
@@ -354,6 +442,16 @@ export const GUIDES = {
         title: "Appearance and base currency",
         body: "Choose light, dark or automatic. The base currency is what totals and charts are shown in.",
         caution: "The base currency is shared by all users of this app.",
+      },
+      {
+        title: "AI Privacy",
+        body: "Keep my portfolio from Gemini leaves your position, portfolio weights, holdings, plan and past calls out of everything sent to Gemini, and stops Gemini chat reading pages other than stock analysis.",
+        meaning: "Google may train on free-tier Gemini prompts. Prices and news still go to Gemini; they're public. The local model always sees everything, since nothing leaves this machine.",
+      },
+      {
+        title: "Hidden from Gemini",
+        body: "Emails, phone numbers, ID, card and account numbers, keys, passwords and addresses are swapped for placeholders before anything goes to Gemini, and swapped back in its reply. Add words to always hide, such as your name or employer.",
+        caution: "This is a safety net, not a guarantee: details written in an unusual form can get through. Use the local model for anything sensitive.",
       },
       {
         title: "Data",

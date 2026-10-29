@@ -1,4 +1,7 @@
-"""Scheduled assessments over a fixed list of stocks, to build an unbiased track record.
+"""Scheduled assessments over your holdings and a fixed list of stocks.
+
+The fixed list builds an unbiased track record; your holdings are added so the stocks you own are
+assessed every run too. Each call records which it was (``held``, ``in_list``; a stock can be both).
 
 Runs on the local model every time. In the last week of the month it also runs Gemini on the
 same context, so the Track Record can compare the two models on identical inputs.
@@ -12,6 +15,7 @@ next few stocks of the day's run and exits, so the Mac is never busy for long.
 """
 
 import argparse
+import math
 import os
 import time
 from datetime import date, datetime, timedelta
@@ -20,8 +24,10 @@ import requests
 
 from config import get_ollama_model, get_ollama_url, is_gemini_api_configured
 
-from . import assessment, market
-from .storage import data_path, load_json, save_json
+from . import assessment, mailer, market, usage
+from .auth import get_email
+from .plan import digest
+from .storage import data_path, load_holdings, load_json, save_json
 
 # A fixed spread across sectors, the same every run, so the record isn't tilted towards stocks you
 # already like. Edit freely; a change only affects runs from then on.
@@ -35,10 +41,13 @@ UNIVERSE = [
     "HD", "DIS", "NFLX", "TSLA",  # consumer discretionary and media
 ]
 
-# Run days (Monday = 0) and the hours launchd starts a chunk on them. Eight chunks of 4 cover the 30
-# stocks by 16:00; the later hours are slack for chunks missed while the Mac was asleep.
+# Run days (Monday = 0) and the hours launchd starts a chunk on them. A run is split over the first
+# eight hours, so it's done by 16:00; the later hours are slack for chunks missed while the Mac was asleep.
 DAYS = (0, 4)
 HOURS = range(9, 21)
+CHUNKS = 8
+
+# Fewest stocks per chunk; more when holdings make the run too long for CHUNKS chunks.
 CHUNK = 4
 
 # Seconds between stocks within a chunk, to let the machine cool off.
@@ -47,9 +56,6 @@ PAUSE = 30
 # Data fetches per stock. After a Yahoo failure every fetch is skipped for a cooldown, so a retry
 # waits that out first; without it one rate-limit fails the next several stocks too.
 FETCH_ATTEMPTS = 3
-
-# Gemini's free tier allows 15 requests a minute; stay under it.
-GEMINI_RPM = 12
 
 RUNS_LOG = "scheduled_runs.json"
 STATUS = "scheduled_status.json"
@@ -79,6 +85,31 @@ def next_run(now: datetime) -> datetime:
         if day and day[0] > now:
             return day[0]
     raise AssertionError("DAYS is empty")
+
+
+def held_symbols(username: str) -> list[str]:
+    """Stocks in the portfolio now, in the order first bought."""
+    return list(dict.fromkeys(h["Symbol"].upper() for h in load_holdings(username) if h.get("Symbol") and (h.get("Quantity") or 0) > 0))
+
+
+def plan(username: str) -> tuple[list[str], list[str]]:
+    """A run's stocks, your holdings first, then the rest of the fixed list; and which are held."""
+    held = held_symbols(username)
+    return held + [s for s in UNIVERSE if s not in held], held
+
+
+def chunk_size(total: int) -> int:
+    return max(CHUNK, math.ceil(total / CHUNKS))
+
+
+def _email_alerts(username: str, entry: dict) -> None:
+    """At the start of a day's run, email what needs attention (when SMTP and an email are set up)."""
+    try:
+        text = digest(username, load_json(data_path("settings.json"), {}).get("base_currency", "USD"))
+        if text and mailer.send_alerts(username, get_email(username), text):
+            entry["alerts_emailed"] = True
+    except Exception as e:
+        entry["skipped"].append(f"alert email: {e}")
 
 
 def _alive(pid: int | None) -> bool:
@@ -153,9 +184,9 @@ def _attempted(entry: dict) -> set[str]:
     return {r["symbol"] for r in entry["ok"] + entry["failed"]}
 
 
-def run(username: str, mode: str = "auto", symbols: list[str] | None = None, chunk: int = CHUNK) -> dict:
-    """Assess the next ``chunk`` stocks of today's run (0: all that are left), starting the run if
-    there isn't one. With ``symbols``, a one-off run of just those, all at once."""
+def run(username: str, mode: str = "auto", symbols: list[str] | None = None, chunk: int | None = None) -> dict:
+    """Assess the next ``chunk`` stocks of today's run (0: all that are left; None: the run's chunk
+    size), starting the run if there isn't one. With ``symbols``, a one-off run of just those, all at once."""
     now = datetime.now()
     if symbols:
         chunk = 0
@@ -164,11 +195,14 @@ def run(username: str, mode: str = "auto", symbols: list[str] | None = None, chu
     run_id = now.strftime("%Y-%m-%dT%H:%M") if symbols else now.date().isoformat()
     entry = next((r for r in runs if r["run"] == run_id and r.get("user", "admin") == username), None)
     if entry is None:
-        # Which models run is fixed when the day's run starts, so every chunk of it matches.
+        # Which models and stocks run is fixed when the day's run starts, so every chunk of it matches.
+        planned, held = plan(username)
         entry = {"user": username, "run": run_id, "started": now.isoformat(), "finished": None,
-                 "providers": providers_for(mode, now.date()), "symbols": symbols or list(UNIVERSE),
+                 "providers": providers_for(mode, now.date()), "symbols": symbols or planned, "held": held,
                  "skipped": [], "ok": [], "failed": []}
         runs.append(entry)
+        if not symbols:
+            _email_alerts(username, entry)
     elif entry["finished"]:
         # Later hours of a finished day have nothing to do.
         return {**entry, "assessed": []}
@@ -183,17 +217,23 @@ def run(username: str, mode: str = "auto", symbols: list[str] | None = None, chu
     if "gemini" in providers and not is_gemini_api_configured():
         providers.remove("gemini")
         entry["skipped"].append(f"gemini: GEMINI_API_KEY is not configured ({now:%H:%M})")
+    elif "gemini" in providers and usage.requests_left_today() == 0:
+        # Its stocks wait for a later hour; the quota resets at midnight Pacific.
+        providers.remove("gemini")
+        entry["skipped"].append(f"gemini: today's free-tier requests are used up ({now:%H:%M})")
+    if chunk is None:
+        chunk = chunk_size(len(entry["symbols"]))
+    held = set(entry.get("held", []))
     remaining = [s for s in entry["symbols"] if s not in _attempted(entry)]
     # A model that can't run leaves its stocks for a later chunk rather than marking them failed.
     todo = remaining[:chunk or None] if providers == entry["providers"] else []
 
     progress = {"user": username, "run": run_id, "pid": os.getpid(), "started": entry["started"], "providers": entry["providers"],
-                "total": len(entry["symbols"]), "done": len(_attempted(entry)), "current": None,
+                "total": len(entry["symbols"]), "held": len(held & set(entry["symbols"])), "done": len(_attempted(entry)), "current": None,
                 "ok": len(entry["ok"]), "failed": len(entry["failed"]), "finished": entry["finished"], "active": bool(todo)}
     _save_status(progress)
     save()
 
-    last_gemini = 0.0
     for n, symbol in enumerate(todo):
         if n:
             time.sleep(PAUSE)
@@ -206,11 +246,9 @@ def run(username: str, mode: str = "auto", symbols: list[str] | None = None, chu
         else:
             # Both models get the identical context, so a comparison week differs only in the model.
             for provider in providers:
-                if provider == "gemini":
-                    time.sleep(max(0.0, last_gemini + 60 / GEMINI_RPM - time.time()))
-                    last_gemini = time.time()
                 try:
-                    out = assessment.generate(username, ctx, provider, source="scheduled", run=run_id)
+                    out = assessment.generate(username, ctx, provider, source="scheduled", run=run_id,
+                                              held=symbol in held, in_list=symbol in UNIVERSE)
                     entry["ok"].append({"symbol": symbol, "provider": provider, "recommendation": out["recommendation"]})
                 except Exception as e:
                     entry["failed"].append({"symbol": symbol, "provider": provider, "error": str(e)})
@@ -231,7 +269,7 @@ def main() -> None:
     parser.add_argument("--user", default="admin", help="whose history the calls are saved to (default admin)")
     parser.add_argument("--mode", choices=["auto", "local", "gemini", "compare"], default="auto",
                         help="auto: local, plus Gemini in the last week of the month (set when the day's run starts)")
-    parser.add_argument("--chunk", type=int, default=CHUNK, help=f"stocks to assess now (default {CHUNK}; 0 for all left)")
+    parser.add_argument("--chunk", type=int, help=f"stocks to assess now (default the run's chunk size, at least {CHUNK}; 0 for all left)")
     parser.add_argument("--symbols", nargs="+", help="a one-off run of just these stocks")
     parser.add_argument("--print-slots", action="store_true", help=argparse.SUPPRESS)  # for schedule.sh
     args = parser.parse_args()

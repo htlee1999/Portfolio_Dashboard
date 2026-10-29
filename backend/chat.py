@@ -15,13 +15,15 @@ import requests
 from config import (GEMINI_AVAILABLE, ML_AVAILABLE, get_gemini_api_key, get_ollama_model, get_ollama_url,
                     is_gemini_api_configured, normalize_symbol)
 
-from . import fundamentals, portfolio, predictive, sentiment, technical, usage
+from . import fundamentals, plan, portfolio, predictive, privacy, returns, risk, sentiment, technical, usage, valuation
 from .assessment import MODEL as GEMINI_MODEL
 from .storage import load_history, load_settings
 from .utils import clean
 
 # Tool rounds before the model must answer with what it has.
 MAX_ROUNDS = 4
+# Where _gemini counts its API requests in the reply's cache (tool results use tuple keys).
+REQUESTS = "_gemini_requests"
 # Page text past this is cut; about 3,000 tokens, leaving room for tool results in the local context.
 PAGE_CHARS = 12_000
 OLLAMA_CONTEXT = 16384
@@ -88,6 +90,32 @@ def _portfolio(username: str, args: dict) -> dict:
     return {**{k: v for k, v in m.items() if k != "rows"}, "rows": [{k: r.get(k) for k in keep} for r in m["rows"]]}
 
 
+def _risk(username: str, args: dict) -> dict:
+    r = risk.build(username, load_settings().get("base_currency", "USD"))
+    keep = ("symbol", "weight", "industry", "vol", "beta", "risk_share", "corr_to_rest")
+    return {"portfolio": r.get("portfolio"), "flags": r.get("flags"),
+            "holdings": [{k: h.get(k) for k in keep} for h in r.get("holdings", [])],
+            "industry": (r.get("exposure") or {}).get("industry", [])[:6],
+            "scenarios": [{k: x[k] for k in ("name", "portfolio", "benchmark")} for x in r.get("scenarios", [])]}
+
+
+def _returns(username: str, args: dict) -> dict:
+    r = returns.build(username, load_settings().get("base_currency", "USD"))
+    return {k: r.get(k) for k in ("start", "years", "summary", "realized")}
+
+
+def _valuation(username: str, args: dict) -> dict:
+    v = valuation.analyze(_symbol(args), username)
+    return {"peer_rows": v["peers"]["rows"], "peers": [p["symbol"] for p in v["peers"]["peers"]], "anchor": v["anchor"]}
+
+
+def _plan(username: str, args: dict) -> dict:
+    s = plan.status(username, load_settings().get("base_currency", "USD"))
+    return {"needs_attention": s["triggered"], "earnings_calendar": s["calendar"][:10],
+            "rebalance": [r for r in s["rebalance"] if r["target"] is not None],
+            "theses": {h["symbol"]: h["thesis"] for h in s["holdings"] if h["thesis"]}}
+
+
 def _assessments(username: str, args: dict) -> dict:
     history = load_history(username)
     if args.get("symbol"):
@@ -120,6 +148,22 @@ _TOOLS: dict[str, tuple[str, dict, list[str], Callable[[str, dict], dict]]] = {
     "get_portfolio": (
         "The user's holdings: quantity, cost, current value, gain and portfolio weight of each, and totals in their base currency.",
         {}, [], _portfolio),
+    "get_portfolio_risk": (
+        "Portfolio risk: volatility, beta, drawdown, value at risk, effective number of independent bets, each holding's "
+        "share of the risk and correlation with the rest, industry concentration, warnings and historical stress tests.",
+        {}, [], _risk),
+    "get_actual_returns": (
+        "The user's actual returns from their purchases, sales and dividends: time and money-weighted returns, the same "
+        "trades made in the S&P 500, realized gains and dividend income.",
+        {}, [], _returns),
+    "get_valuation_anchors": (
+        "A stock's multiples against its industry peers, the growth its price implies (reverse DCF), and its earnings "
+        "and cash-flow yields against the 10-year Treasury.",
+        _SYMBOL_PARAM, ["symbol"], _valuation),
+    "get_plan": (
+        "The user's plan: alerts that need attention, upcoming earnings for holdings and watchlist, target weights and "
+        "the trades to rebalance, and the thesis written for each holding.",
+        {}, [], _plan),
     "get_past_assessments": (
         "The latest AI BUY/HOLD/SELL assessments saved in this app, optionally for one symbol.",
         {"symbol": _SYMBOL_PARAM["symbol"]}, [], _assessments),
@@ -157,10 +201,12 @@ def _run_tool(username: str, name: str, args: dict, cache: dict) -> dict:
 
 # ── Prompt ───────────────────────────────────────────────────────────────────
 
-def _system(page: dict) -> str:
+def _system(page: dict, private: bool = False) -> str:
     text = (page.get("text") or "").strip()
     if len(text) > PAGE_CHARS:
         text = text[:PAGE_CHARS] + "\n[…page text cut short]"
+    if private and not privacy.public_page(page.get("path")):
+        text = "[withheld: this page shows the user's own data, which they keep private from this model]"
     return "\n".join([
         "You are the assistant inside a personal stock portfolio dashboard. Answer questions about the page the user is "
         "looking at, their portfolio, and the stocks they research.",
@@ -177,6 +223,9 @@ def _system(page: dict) -> str:
         "- Be concise: a few sentences or a short list. Use Markdown sparingly.",
         "- You can explain what the analyses mean and weigh them, but say clearly that this is not personal financial advice "
         "when the user asks whether to buy or sell.",
+        *(["- The user keeps their portfolio private from you: you can't see their holdings, trades, plan or past "
+           "assessments. If a question needs them, say so and suggest switching the chat to the local model."]
+          if private else []),
     ])
 
 
@@ -242,7 +291,7 @@ def _gemini(username: str, system: str, messages: list[dict], tools: list[str], 
                 for m in messages]
     declarations = [{"name": s["name"], "description": s["description"], "parameters_json_schema": s["parameters"]}
                     for s in map(_schema, tools)]
-    tokens_in = tokens_out = 0
+    tokens_in = tokens_out = prompt_tokens = 0
     answer = ""
     for round_ in range(MAX_ROUNDS + 1):
         config = {"system_instruction": system, "thinking_config": {"thinking_level": "low"},
@@ -251,9 +300,13 @@ def _gemini(username: str, system: str, messages: list[dict], tools: list[str], 
             config["tools"] = [{"function_declarations": declarations}]
             # The last round must answer; earlier tool calls stay in the history either way.
             config["tool_config"] = {"function_calling_config": {"mode": "AUTO" if round_ < MAX_ROUNDS else "NONE"}}
+        # Each round is its own request against the limits; the prompt grows with every tool result.
+        usage.acquire(prompt_tokens or usage.estimate_tokens(system + json.dumps(messages)))
+        cache[REQUESTS] = cache.get(REQUESTS, 0) + 1
         response = client.models.generate_content(model=GEMINI_MODEL, contents=contents, config=config)
         meta = getattr(response, "usage_metadata", None)
         if meta:
+            prompt_tokens = meta.prompt_token_count or prompt_tokens
             tokens_in += meta.prompt_token_count or 0
             tokens_out += (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
         calls = response.function_calls or []
@@ -271,8 +324,10 @@ def _gemini(username: str, system: str, messages: list[dict], tools: list[str], 
         for call in calls:
             args = dict(call.args or {})
             yield {"type": "tool", "name": call.name, "args": args}
-            parts.append({"function_response": {"name": call.name,
-                                                "response": {"result": _run_tool(username, call.name, args, cache)}}})
+            # Only the tools offered run, so a privacy-withheld tool stays shut even if the model names it.
+            result = _run_tool(username, call.name, args, cache) if call.name in tools \
+                else {"error": f"{call.name} isn't available"}
+            parts.append({"function_response": {"name": call.name, "response": {"result": result}}})
         contents.append({"role": "user", "parts": parts})
     yield {"type": "_usage", "input": tokens_in, "output": tokens_out, "text": answer}
 
@@ -304,20 +359,33 @@ def providers() -> dict:
 
 def reply(username: str, provider: str, messages: list[dict], page: dict) -> Iterator[str]:
     """NDJSON lines answering the last message, with the page as context."""
-    system = _system(page)
+    private = privacy.is_private(username, provider)
     model = model_name(provider)
     symbol = page.get("symbol") or None
-    prompt_log = system + "\n\n" + "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    prompt_log = _system(page, private) + "\n\n" + "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    # Gemini gets personal details as placeholders; the answer gets them back before the user sees it.
+    redactor = privacy.redactor(username) if provider == "gemini" else None
+    if redactor:
+        page = {**page, "title": redactor(page.get("title") or ""), "text": redactor(page.get("text") or "")}
+        messages = [{**m, "content": redactor(m["content"])} for m in messages]
+        if hidden := redactor.found():
+            yield json.dumps({"type": "redacted", "items": hidden}) + "\n"
+    system = _system(page, private)
     cache: dict = {}
     try:
-        for event in PROVIDERS[provider](username, system, messages, _available(), cache):
+        tools = privacy.tools(_available()) if private else _available()
+        for event in PROVIDERS[provider](username, system, messages, tools, cache):
+            if redactor:
+                event = redactor.restore(event)
             if event["type"] == "_usage":
                 usage.log_call(model, prompt_log, event["text"], "chat", symbol,
-                               input_tokens=event["input"] or None, output_tokens=event["output"] or None)
+                               input_tokens=event["input"] or None, output_tokens=event["output"] or None,
+                               requests=cache.get(REQUESTS))
                 continue
             yield json.dumps(event) + "\n"
     except Exception as e:
-        usage.log_call(model, prompt_log, "", "chat", symbol, success=False, error_message=str(e))
+        usage.log_call(model, prompt_log, "", "chat", symbol, success=False, error_message=str(e),
+                       requests=cache.get(REQUESTS))
         yield json.dumps({"type": "error", "message": str(e)}) + "\n"
         return
     yield json.dumps({"type": "done", "model": model}) + "\n"

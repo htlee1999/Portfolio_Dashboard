@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from config import ML_AVAILABLE, PERIOD_LIST, get_ollama_model, is_gemini_api_configured, normalize_symbol
 
-from .. import assessment, batch, evaluation, fundamentals, predictive, reports, sentiment, technical, track_record
+from .. import assessment, batch, evaluation, fundamentals, predictive, reports, sentiment, technical, track_record, valuation
 from ..auth import admin_user, current_user
 from ..storage import data_path, file_stamp, load_json
 from ..utils import clean
@@ -88,6 +88,15 @@ def fundamental_analysis(symbol: str, user: dict = Depends(current_user)):
     if result is None:
         raise _unavailable(symbol)
     return clean(result)
+
+
+@router.get("/stocks/{symbol}/valuation")
+def valuation_anchors(symbol: str, user: dict = Depends(current_user)):
+    symbol = _symbol(symbol)
+    try:
+        return clean(valuation.analyze(symbol, user["username"]))
+    except LookupError:
+        raise _unavailable(symbol)
 
 
 class PredictIn(BaseModel):
@@ -201,17 +210,24 @@ def get_scheduled(user: dict = Depends(current_user)):
     now = datetime.now()
     runs = [r for r in load_json(data_path(batch.RUNS_LOG), []) if r.get("user", "admin") == user["username"]]
     nxt = batch.next_run(now)
+    symbols, held = batch.plan(user["username"])
+    s = batch.status()
     return clean({
         "installed": os.path.exists(batch.PLIST),
         "next_run": nxt.isoformat(),
         "next_compare": batch.is_last_week(nxt.date()),
         "model": get_ollama_model(),
-        "chunk": batch.CHUNK,
+        # The chunk size of the run in progress, or of the next run.
+        "chunk": batch.chunk_size(s["total"] if s and s.get("user") == user["username"] and s["state"] in ("running", "waiting")
+                                  else len(symbols)),
+        "held": held,
+        "list_size": len(batch.UNIVERSE),
+        "total": len(symbols),
         "hours": [batch.HOURS[0], batch.HOURS[-1]],
         "local_problem": batch.local_ready(),
-        "status": batch.status(),
+        "status": s,
         "runs": [{k: r.get(k) for k in ("run", "started", "finished", "providers", "skipped")}
-                 | {"total": len(r.get("symbols") or []) or None, "ok": len(r["ok"]), "failed": len(r["failed"]),
+                 | {"total": len(r.get("symbols") or []) or None, "held": len(r.get("held") or []), "ok": len(r["ok"]), "failed": len(r["failed"]),
                     "errors": r["failed"][:5]} for r in runs[-10:][::-1]],
     })
 

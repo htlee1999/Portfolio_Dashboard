@@ -14,9 +14,9 @@ import { Banner, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Disclosure } from "@/components/ui/overlay";
 import { Delta, Stat, StatGrid } from "@/components/ui/stat";
 import { useApi } from "@/lib/api";
-import { dateTime, money, pct, shortDate } from "@/lib/format";
+import { dateTime, money, number, pct, shortDate } from "@/lib/format";
 import { ScheduledCard } from "./scheduled-card";
-import type { Calibration, ModelComparison, RuleComparison, Signal, TrackRecord } from "@/lib/types";
+import type { Calibration, ConfidenceCalibration, ModelComparison, Ranking, RuleComparison, Signal, TrackRecord } from "@/lib/types";
 
 const REC_TONE = { BUY: "positive", SELL: "negative", HOLD: "tint" } as const;
 const OUTCOME_TONE = { Correct: "positive", Wrong: "negative", Flat: "neutral", Neutral: "neutral", Pending: "neutral" } as const;
@@ -95,6 +95,7 @@ export default function TrackRecordPage() {
   const [version, setVersion] = useState("ALL");
   const [source, setSource] = useState("ALL");
   const [model, setModel] = useState("ALL");
+  const [group, setGroup] = useState<"ALL" | "held" | "list">("ALL");
   const versions = [...new Set((data?.signals ?? []).map((s) => s.prompt_version))].sort((a, b) => a - b);
 
   const filtered = useMemo(
@@ -102,9 +103,10 @@ export default function TrackRecordPage() {
       (data?.signals ?? []).filter(
         (s) => (rec === "ALL" || s.recommendation === rec) && (symbol === "ALL" || s.symbol === symbol) && (version === "ALL" || String(s.prompt_version) === version) &&
           (source === "ALL" || s.source === source) &&
-          (model === "ALL" || s.model === model),
+          (model === "ALL" || s.model === model) &&
+          (group === "ALL" || (group === "held" ? s.held === true : s.in_list === true)),
       ),
-    [data, rec, symbol, version, source, model],
+    [data, rec, symbol, version, source, model, group],
   );
 
   const st = stats(filtered);
@@ -178,6 +180,17 @@ export default function TrackRecordPage() {
                 { value: "ALL", label: "All sources" },
                 { value: "manual", label: "Run by you" },
                 { value: "scheduled", label: "Scheduled" },
+              ]}
+            />
+            <Select
+              className="w-44"
+              aria-label="Stocks"
+              value={group}
+              onChange={(e) => setGroup(e.target.value as typeof group)}
+              options={[
+                { value: "ALL", label: "All stocks" },
+                { value: "held", label: "Your holdings" },
+                { value: "list", label: "Fixed list" },
               ]}
             />
             {data.models.models.length > 1 && (
@@ -273,6 +286,11 @@ export default function TrackRecordPage() {
 
           <RulesCard r={data.rules} horizon={HORIZON_TEXT[horizon]} />
 
+          <div className="grid items-start gap-5 lg:grid-cols-2">
+            <ConfidenceCard c={data.confidence} horizon={HORIZON_TEXT[horizon]} />
+            <RankingCard r={data.ranking} horizon={HORIZON_TEXT[horizon]} />
+          </div>
+
           {data.models.models.length > 1 && <ModelsCard m={data.models} horizon={HORIZON_TEXT[horizon]} />}
 
           {positions.length > 0 && (
@@ -355,6 +373,7 @@ export default function TrackRecordPage() {
                   <span className="flex items-center gap-2">
                     {s.symbol}
                     <Badge tone={REC_TONE[s.recommendation]}>{s.recommendation}</Badge>
+                    {s.held && <Badge tone="tint">Held</Badge>}
                   </span>
                 }
                 subtitle={`${shortDate(s.timestamp, true)} · confidence ${s.confidence ?? "—"}/10${
@@ -401,6 +420,8 @@ export default function TrackRecordPage() {
                   {s.position_advice && <p>{s.position_advice}</p>}
                   <p className="text-footnote text-label-2">
                     {s.model ?? "Model not recorded"} · prompt v{s.prompt_version} · {s.source === "scheduled" ? "scheduled run" : "run by you"}
+                    {s.source === "scheduled" &&
+                      (s.held && s.in_list ? " · your holding, also on the fixed list" : s.held ? " · your holding" : s.in_list ? " · fixed list" : "")}
                     {s.momentum != null && ` · 12-1 month momentum ${pct(s.momentum * 100, 0)} at entry`}
                   </p>
                   {(s.strengths.length > 0 || s.risks.length > 0) && (
@@ -437,7 +458,7 @@ export default function TrackRecordPage() {
           <p className="text-footnote text-label-2">
             Each call starts from the first close after it was made, the first price you could have traded at, and is compared with the S&P 500 over
             the same days. A BUY wins if the stock beat the index by more than {data.flat_band} point; a SELL if it lagged by more than that. Smaller
-            gaps are flat and left out of the win rate. HOLDs are shown but not scored. Prices are adjusted for splits but not dividends.
+            gaps are flat and left out of the win rate. HOLDs are shown but not scored. Returns include dividends (reinvested), for the stock and the S&P 500 (SPY); entry prices and targets are split-adjusted closes.
           </p>
         </div>
       ) : null}
@@ -668,5 +689,93 @@ function List({ title, items }: { title: string; items: string[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Stated confidence against how often the calls were right. All signals, not the filters. */
+function ConfidenceCard({ c, horizon }: { c: ConfidenceCalibration; horizon: string }) {
+  return (
+    <Card>
+      <CardHeader title="Does confidence mean anything?" subtitle={`BUY and SELL calls scored at ${horizon}, all symbols, by stated confidence`} />
+      {c.n < MIN_SCORED && (
+        <Banner tone="info" title={`${c.n} scored call${c.n === 1 ? "" : "s"} so far`}>
+          Anecdotes until there are at least {MIN_SCORED}; each bar&apos;s range shows how little a few calls can tell.
+        </Banner>
+      )}
+      <ul className="mt-3 space-y-3">
+        {c.rows.map((r) => (
+          <li key={r.label} className="grid grid-cols-[3.5rem_1fr_6.5rem] items-center gap-3 text-footnote tabular">
+            <span className="text-label-2">{r.label}/10</span>
+            <span className="relative h-4 rounded-[4px] bg-fill-2" aria-hidden>
+              {r.ci && (
+                <span className="absolute inset-y-[5px] rounded-full bg-fill-strong" style={{ left: `${r.ci[0]}%`, width: `${Math.max(1, r.ci[1] - r.ci[0])}%` }} />
+              )}
+              {r.actual != null && (
+                <span className="absolute inset-y-0 left-0 rounded-r-[4px] bg-[var(--series-1)] opacity-90" style={{ width: `${Math.max(1, r.actual)}%` }} />
+              )}
+              <span className="absolute inset-y-[-3px] w-[2px] rounded-full bg-label" style={{ left: `${r.stated}%` }} title={`Claimed ${number(r.stated, 0)}%`} />
+            </span>
+            <span className="text-right">
+              {r.actual != null ? <span className="font-semibold">{pct(r.actual, 0, false)}</span> : <span className="text-label-3">—</span>}
+              <span className="text-label-2"> of {r.n}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-footnote text-label-2">
+        The bar is how often calls at that confidence were right, with its 95% range in gray; the line is what the confidence claimed. Well-calibrated calls put the bar at
+        the line. Brier score {c.brier != null ? number(c.brier, 3) : "—"} (0.25 is a coin flip; lower is better).
+      </p>
+    </Card>
+  );
+}
+
+/** Whether runs ranked their stocks well, HOLDs included. All signals, not the filters. */
+function RankingCard({ r, horizon }: { r: Ranking; horizon: string }) {
+  return (
+    <Card>
+      <CardHeader title="Does it rank stocks well?" subtitle={`Scheduled runs with at least ${r.min_ranked} calls scored at ${horizon}, HOLDs included`} />
+      {r.count === 0 ? (
+        <p className="text-callout text-label-2">No run has enough scored calls yet. This fills in as scheduled runs pass the scoring checkpoint.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="text-caption text-label-2">Average IC</div>
+              <div className="text-headline tabular">
+                <Delta value={r.mean_ic}>{number(r.mean_ic, 2)}</Delta>
+              </div>
+            </div>
+            <div>
+              <div className="text-caption text-label-2">Stronger minus weaker</div>
+              <div className="text-headline tabular">
+                <Delta value={r.mean_spread}>{pct(r.mean_spread, 1)}</Delta>
+              </div>
+            </div>
+            <div>
+              <div className="text-caption text-label-2">Runs where it worked</div>
+              <div className="text-headline tabular">{pct(r.positive_share, 0, false)}</div>
+            </div>
+          </div>
+          <ul className="mt-4 tabular">
+            {r.runs.slice(0, 8).map((x) => (
+              <li key={`${x.run}-${x.model}`} className="flex items-center justify-between gap-3 border-t-[0.5px] border-separator py-1.5 text-footnote" title={`Stronger: ${x.top.join(", ")}\nWeaker: ${x.bottom.join(", ")}`}>
+                <span className="min-w-0 truncate text-label-2">
+                  {shortDate(x.run.slice(0, 10), true)} · {x.model} · {x.n} calls
+                </span>
+                <span className="shrink-0">
+                  IC <span className="font-semibold">{number(x.ic, 2)}</span> · <Delta value={x.spread}>{pct(x.spread, 1)}</Delta>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p className="mt-3 text-footnote text-label-2">
+        The information coefficient (IC) is the rank correlation between how strongly each call expected to beat the S&P 500 (its stated expected excess return, or for
+        older calls its confidence signed by direction) and how it did. Above 0.05 on average is useful in practice, and it takes many runs to tell from zero.
+        {r.ic_t != null && ` Across runs, t = ${number(r.ic_t, 1)} (about 2 or more is unlikely to be luck).`}
+      </p>
+    </Card>
   );
 }

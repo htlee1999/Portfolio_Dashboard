@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, FileJson, Gauge, History, KeyRound, LogOut, Mail, Moon, Sun, SunMoon, UserPlus } from "lucide-react";
+import { Activity, ClipboardCheck, FileJson, Gauge, History, KeyRound, LogOut, Mail, Moon, ShieldAlert, Sun, SunMoon, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { mutate as globalMutate } from "swr";
 
@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { PageGuide } from "@/components/shell/page-guide";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, List, ListRow, Section } from "@/components/ui/card";
-import { Segmented, Select, TextField } from "@/components/ui/controls";
+import { Segmented, Select, Switch, TextField } from "@/components/ui/controls";
 import { Banner } from "@/components/ui/feedback";
 import { Disclosure, Sheet } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/toast";
@@ -43,6 +43,8 @@ export default function SettingsPage() {
         <Section className="lg:hidden">
           <List>
             <ListRow href="/performance" title="Performance" leading={<IconTile icon={<Activity />} color="#007aff" />} />
+            <ListRow href="/risk" title="Risk" leading={<IconTile icon={<ShieldAlert />} color="#ff3b30" />} />
+            <ListRow href="/plan" title="Plan" leading={<IconTile icon={<ClipboardCheck />} color="#34c759" />} />
             <ListRow href="/track-record" title="Track Record" leading={<IconTile icon={<History />} color="#5856d6" />} />
             <ListRow href="/usage" title="API Usage" leading={<IconTile icon={<Gauge />} color="#ff9500" />} />
           </List>
@@ -93,6 +95,9 @@ export default function SettingsPage() {
           </Card>
         </Section>
 
+        <PrivacySection />
+        <HiddenWordsSection key={(user?.private_terms ?? []).join("\n")} saved={user?.private_terms ?? []} />
+
         <DataSection />
 
         {user?.role === "admin" && <UsersSection />}
@@ -101,6 +106,90 @@ export default function SettingsPage() {
       <PasswordSheet open={pwOpen} onClose={() => setPwOpen(false)} />
       <EmailSheet key={user?.email ?? ""} open={emailOpen} current={user?.email ?? null} onClose={() => setEmailOpen(false)} />
     </>
+  );
+}
+
+function PrivacySection() {
+  const toast = useToast();
+  const { user } = useSession();
+  const [busy, setBusy] = useState(false);
+  const on = user?.gemini_private ?? true;
+
+  async function set(next: boolean) {
+    setBusy(true);
+    try {
+      await api("/auth/gemini-privacy", { method: "PUT", json: { private: next } });
+      await globalMutate("/auth/me");
+      toast(next ? "Your portfolio is kept from Gemini" : "Gemini now sees your portfolio");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="AI Privacy"
+      description="Google may use free-tier Gemini prompts and responses to improve its models, and people may read them. The local model never sends anything off this machine."
+    >
+      <Card className={busy ? "pointer-events-none opacity-60" : undefined}>
+        <Switch
+          checked={on}
+          onChange={set}
+          label="Keep my portfolio from Gemini"
+          description={
+            on
+              ? "Assessments and evaluations on Gemini leave out your position and portfolio, so their position advice is general. Gemini chat can't see your holdings, trades, plan or past calls, or the text of pages other than stock analysis."
+              : "Gemini sees your share count, cost, portfolio weights and holdings, and the text of any page you chat from."
+          }
+        />
+      </Card>
+    </Section>
+  );
+}
+
+function HiddenWordsSection({ saved }: { saved: string[] }) {
+  const toast = useToast();
+  const [text, setText] = useState(saved.join(", "));
+  const [busy, setBusy] = useState(false);
+  const terms = text.split(/[,\n]/).map((t) => t.trim()).filter((t) => t.length >= 2);
+  const changed = terms.join("\n") !== saved.join("\n");
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("/auth/private-terms", { method: "PUT", json: { terms } });
+      await globalMutate("/auth/me");
+      toast(terms.length ? `${terms.length} word${terms.length > 1 ? "s" : ""} hidden from Gemini` : "Hidden words cleared");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Hidden from Gemini"
+      description="Emails, phone numbers, ID, card and account numbers, API keys, passwords, addresses and dates of birth are removed automatically before anything goes to Gemini, and put back in its reply. Names can't be spotted reliably, so list yours here: your name, family members, employer, street. Your account email is always hidden."
+    >
+      <Card>
+        <form onSubmit={save} className="space-y-3">
+          <TextField
+            label="Always hide these words"
+            placeholder="e.g. Jane Tan, Acme Pte Ltd, Orchard Road"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            hint="Separate with commas. Matched whole-word, ignoring case."
+          />
+          <Button type="submit" size="sm" disabled={!changed} loading={busy}>
+            Save
+          </Button>
+        </form>
+      </Card>
+    </Section>
   );
 }
 

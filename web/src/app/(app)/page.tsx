@@ -1,6 +1,6 @@
 "use client";
 
-import { Briefcase, RefreshCw } from "lucide-react";
+import { AlertTriangle, Briefcase, CalendarClock, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useMemo } from "react";
@@ -10,7 +10,7 @@ import { CurrencyMenu } from "@/components/shell/currency-menu";
 import { PageHeader } from "@/components/shell/page-header";
 import { PageGuide } from "@/components/shell/page-guide";
 import { Button, IconButton } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Badge, Card, CardHeader } from "@/components/ui/card";
 import { Banner, EmptyState, Skeleton } from "@/components/ui/feedback";
 import { AnimatedNumber, Delta } from "@/components/ui/stat";
 import { useApi } from "@/lib/api";
@@ -18,7 +18,7 @@ import { money, number, pct, relative } from "@/lib/format";
 import { spring, stagger, staggerItem } from "@/lib/motion";
 import { toPositions } from "@/lib/portfolio";
 import { useSession } from "@/lib/session";
-import type { Metrics } from "@/lib/types";
+import type { MarketContext, Metrics, PlanStatus } from "@/lib/types";
 
 export default function OverviewPage() {
   const { baseCurrency } = useSession();
@@ -101,6 +101,15 @@ export default function OverviewPage() {
           </motion.div>
 
           <div className="grid gap-5 lg:grid-cols-5">
+            <motion.div variants={staggerItem} className="lg:col-span-3">
+              <AttentionCard base={baseCurrency} largest={positions[0]} />
+            </motion.div>
+            <motion.div variants={staggerItem} className="lg:col-span-2">
+              <MarketCard />
+            </motion.div>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-5">
             <motion.div variants={staggerItem} className="lg:col-span-2">
               <Card className="h-full">
                 <CardHeader title="Allocation" subtitle={`By current value in ${baseCurrency}`} />
@@ -157,6 +166,91 @@ export default function OverviewPage() {
         </motion.div>
       ) : null}
     </>
+  );
+}
+
+const CONCENTRATED = 20;
+
+/** Alerts and dates from Plan, plus a warning when one position dominates. */
+function AttentionCard({ base, largest }: { base: string; largest?: { symbol: string; weight: number } }) {
+  const { data } = useApi<PlanStatus>(`/plan/status?base=${base}`);
+  const items = [
+    ...(largest && largest.weight > CONCENTRATED
+      ? [{ severity: "warning" as const, kind: "concentration", message: `${largest.symbol} is ${number(largest.weight, 0)}% of your portfolio. See Risk for how much of the risk it carries.` }]
+      : []),
+    ...(data?.triggered ?? []),
+  ];
+  return (
+    <Card className="h-full">
+      <CardHeader
+        title="Needs attention"
+        action={
+          <Link href="/plan" className="flex min-h-11 items-center text-callout font-semibold text-tint">
+            Plan
+          </Link>
+        }
+      />
+      {!data ? (
+        <Skeleton className="h-24" />
+      ) : items.length ? (
+        <ul className="space-y-2.5">
+          {items.slice(0, 6).map((t, i) => (
+            <li key={i} className="flex gap-2.5 text-callout">
+              {t.severity === "warning" ? (
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-label="Warning" />
+              ) : t.kind === "earnings" ? (
+                <CalendarClock className="mt-0.5 size-4 shrink-0 text-tint" aria-label="Earnings" />
+              ) : (
+                <Info className="mt-0.5 size-4 shrink-0 text-tint" aria-label="Note" />
+              )}
+              {t.message}
+            </li>
+          ))}
+          {items.length > 6 && <li className="text-footnote text-label-2">and {items.length - 6} more on Plan</li>}
+        </ul>
+      ) : (
+        <p className="flex items-center gap-2 text-callout text-label-2">
+          <CheckCircle2 className="size-4 text-positive" aria-hidden /> Nothing right now.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+const REGIME = { "risk-on": "positive", mixed: "neutral", "risk-off": "negative" } as const;
+const LEAN = { supportive: "text-positive", neutral: "text-label-2", headwind: "text-negative" } as const;
+
+function MarketCard() {
+  const { data } = useApi<MarketContext>("/market/context");
+  return (
+    <Card className="h-full">
+      <CardHeader
+        title="Market backdrop"
+        subtitle={data ? `As of ${data.as_of} · conditions, not a timing signal` : undefined}
+        action={data && <Badge tone={REGIME[data.regime]}>{data.regime}</Badge>}
+      />
+      {!data ? (
+        <Skeleton className="h-24" />
+      ) : (
+        <ul className="space-y-1.5 text-footnote">
+          {data.readings.map((r) => (
+            <li key={r.key} className="flex items-baseline justify-between gap-3" title={r.rule}>
+              <span className="min-w-0 truncate text-label-2">{r.label}</span>
+              <span className="shrink-0 tabular">
+                <span className="font-semibold">{number(r.value, r.unit === "%" && r.key === "breadth" ? 0 : 2)}{r.unit}</span>{" "}
+                {r.lean !== "neutral" && <span className={LEAN[r.lean]}>{r.lean}</span>}
+              </span>
+            </li>
+          ))}
+          {data.sectors.length > 0 && (
+            <li className="pt-1.5 text-label-2">
+              3-month leaders vs the S&P 500: {data.sectors.slice(0, 2).map((x) => `${x.name} ${pct(x.vs_spy_3m, 0)}`).join(", ")} · laggards:{" "}
+              {data.sectors.slice(-2).map((x) => `${x.name} ${pct(x.vs_spy_3m, 0)}`).join(", ")}
+            </li>
+          )}
+        </ul>
+      )}
+    </Card>
   );
 }
 
