@@ -562,12 +562,12 @@ function ModelsCard({ m, horizon }: { m: ModelComparison; horizon: string }) {
           </div>
           <div className="mb-1 text-footnote font-semibold">Head to head</div>
           <p className="mb-2 text-footnote text-label-2">
-            Comparison runs in the last week of each month give both models the same stock and the same data, so only the model differs.
+            Scheduled runs give both models the same stock and the same data, so only the model differs.
           </p>
           {table(m.paired)}
         </>
       ) : (
-        <p className="mb-3 text-callout text-label-2">No comparison runs yet. They happen on the scheduled runs in the last week of each month.</p>
+        <p className="mb-3 text-callout text-label-2">No comparison runs yet. Every scheduled run compares the two models when a Gemini API key is set.</p>
       )}
       <div className="mt-4 mb-1 text-footnote font-semibold">All calls</div>
       <p className="mb-2 text-footnote text-label-2">Each model on every call it made. The two cover different stocks and dates, so the head-to-head is the fairer test.</p>

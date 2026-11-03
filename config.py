@@ -26,6 +26,17 @@ def get_gemini_api_key() -> Optional[str]:
     return os.environ.get("GEMINI_API_KEY")
 
 
+# Seconds a Gemini request may take. Without a limit, a connection dropped mid-request (the Mac
+# sleeping, a VPN reconnecting) blocks the caller forever.
+GEMINI_TIMEOUT = 300
+
+
+def gemini_client():
+    """A Gemini client whose requests fail after GEMINI_TIMEOUT instead of hanging."""
+    from google import genai
+    return genai.Client(api_key=get_gemini_api_key(), http_options={"timeout": GEMINI_TIMEOUT * 1000})
+
+
 def get_finnhub_api_key() -> Optional[str]:
     """Get Finnhub API key from environment (used as a price-data fallback)."""
     return os.getenv("FINN_API_KEY")

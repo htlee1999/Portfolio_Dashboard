@@ -48,7 +48,7 @@ The backend is a Python package run from the repository root as `uvicorn backend
 | `volatility.py` | GARCH(1,1) with Student-t errors for the next-session range |
 | `sentiment.py` | SERPapi news fetch, headline filtering (window, duplicates, routine filings, firm-specific), financial-news model scoring with VADER fallback |
 | `assessment.py` | Gathers every signal in parallel, scores the radar, calls Gemini or the local model (Ollama) with a response schema and records the result and its inputs |
-| `batch.py` | Scheduled assessments over a fixed stock list: local model on Mondays and Fridays, plus Gemini on the same context in the last week of the month |
+| `batch.py` | Scheduled assessments over a fixed stock list: local model and Gemini (when its key is set) on the same context, on Mondays and Fridays |
 | `chat.py` | Page-aware chat: the page's text goes in the system prompt, and the analyses are offered as tools; streams NDJSON from Ollama or Gemini |
 | `evaluation.py` | Second look at an assessment: picks skills by rule, computes their facts and rule screens, one Gemini review, enforces that it can only flag and lower confidence |
 | `skills/*/SKILL.md` | The evaluation's skills: instructions, when each applies, evidence rating and sources (Agent Skills format) |

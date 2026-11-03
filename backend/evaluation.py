@@ -18,7 +18,7 @@ from typing import Callable, Literal
 import yaml
 from pydantic import BaseModel, Field
 
-from config import GEMINI_AVAILABLE, get_gemini_api_key, is_gemini_api_configured
+from config import GEMINI_AVAILABLE, gemini_client, is_gemini_api_configured
 
 from . import portfolio, privacy, technical, usage
 from .assessment import MODEL, THINKING_LEVEL, Assessment
@@ -563,8 +563,6 @@ def review(username: str, ctx: dict, ai: dict) -> dict:
         raise RuntimeError("GEMINI_API_KEY is not configured in .env.")
     Assessment.model_validate({k: ai[k] for k in Assessment.model_fields})  # ValueError on a malformed result
 
-    from google import genai
-
     if privacy.is_private(username, "gemini"):
         # The user's position stays out, and so does advice about it, which a local-model call may have written.
         ctx = privacy.context(ctx)
@@ -574,7 +572,7 @@ def review(username: str, ctx: dict, ai: dict) -> dict:
     redactor = privacy.redactor(username, strict=True)
     try:
         usage.acquire(usage.estimate_tokens(prompt))
-        client = genai.Client(api_key=get_gemini_api_key())
+        client = gemini_client()
         response = client.models.generate_content(
             model=MODEL,
             contents=redactor(prompt),

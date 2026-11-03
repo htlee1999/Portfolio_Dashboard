@@ -548,7 +548,8 @@ export type Usage = {
 };
 
 /** Progress of the current or last scheduled run. A day's run is assessed a chunk an hour: "running"
- * while a chunk is going, "waiting" between chunks, "incomplete" if the day's slots ran out. */
+ * while a chunk is going, "stalled" if it has stopped progressing, "waiting" between chunks, "incomplete"
+ * if the day's slots ran out. */
 export type RunStatus = {
   user: string;
   run: string;
@@ -564,13 +565,15 @@ export type RunStatus = {
   finished: string | null;
   /** When the next chunk starts, while waiting. */
   next_chunk?: string;
-  state: "running" | "waiting" | "finished" | "incomplete";
+  /** When the chunk last progressed, while running or stalled. */
+  updated?: string;
+  state: "running" | "stalled" | "waiting" | "finished" | "incomplete";
 };
 
 export type ScheduledRuns = {
   installed: boolean;
   next_run: string;
-  /** Whether the next run is in the last week of the month, so Gemini runs too. */
+  /** Whether Gemini runs alongside the local model in the next run (its API key is set). */
   next_compare: boolean;
   model: string;
   /** Stocks per hourly chunk, and the first and last hour chunks start. */

@@ -395,13 +395,21 @@ def test_models_are_compared_on_paired_calls():
     assert {r["model"]: r["calls"] for r in m["all"]} == {"gemini": 1, "qwen": 2}
 
 
-def test_batch_compares_models_only_in_the_last_week():
+def test_batch_compares_models_when_gemini_is_configured(monkeypatch):
+    from backend import batch
+    monkeypatch.setattr(batch, "is_gemini_api_configured", lambda: True)
+    assert batch.providers_for("auto") == ["local", "gemini"]
+    monkeypatch.setattr(batch, "is_gemini_api_configured", lambda: False)
+    assert batch.providers_for("auto") == ["local"]
+    assert batch.providers_for("gemini") == ["gemini"]
+
+
+def test_a_start_on_an_off_day_belongs_to_the_last_run_day():
     from datetime import date
     from backend import batch
-    assert batch.providers_for("auto", date(2026, 10, 23)) == ["local"]
-    assert batch.providers_for("auto", date(2026, 10, 26)) == ["local", "gemini"]
-    assert batch.providers_for("auto", date(2026, 2, 23)) == ["local", "gemini"]  # 28-day month
-    assert batch.providers_for("gemini", date(2026, 10, 5)) == ["gemini"]
+    assert batch.run_day(date(2026, 10, 30)) == date(2026, 10, 30)  # Friday
+    assert batch.run_day(date(2026, 10, 31)) == date(2026, 10, 30)  # Saturday, woken after a missed Friday hour
+    assert batch.run_day(date(2026, 10, 27)) == date(2026, 10, 26)  # Tuesday
 
 
 def test_next_scheduled_run_is_the_next_monday_or_friday_at_nine():
@@ -464,3 +472,23 @@ def test_launchd_slots_cover_each_run_day_hourly():
     assert [d.hour for d in batch.slots(date(2026, 10, 19))] == list(batch.HOURS)  # Monday
     assert batch.slots(date(2026, 10, 20)) == []  # Tuesday
     assert len(batch.HOURS) * batch.CHUNK >= len(batch.UNIVERSE)  # a day's run fits its slots
+
+
+def test_a_chunk_without_progress_is_stalled_and_can_be_stopped(monkeypatch, tmp_path):
+    import os
+    from datetime import datetime, timedelta
+    from backend import batch
+    monkeypatch.setattr(batch, "data_path", lambda name: str(tmp_path / name))
+    monkeypatch.setattr(batch, "_alive", lambda pid: True)
+    killed = []
+    monkeypatch.setattr(batch.os, "kill", lambda pid, sig: killed.append(pid))
+    batch._save_status({"run": "2026-11-02", "pid": 123, "current": "NVDA", "finished": None, "active": True})
+    now = datetime.fromtimestamp(os.path.getmtime(tmp_path / batch.STATUS))
+    assert batch.status(now + timedelta(minutes=5))["state"] == "running"
+    assert batch.status(now + batch.STALL + timedelta(minutes=1))["state"] == "stalled"
+
+    assert not batch.stop_stalled()  # still within STALL of the last progress
+    os.utime(tmp_path / batch.STATUS, (0, (now - batch.STALL - timedelta(minutes=1)).timestamp()))
+    assert batch.stop_stalled() and killed == [123]
+    s = batch.status()
+    assert not s["active"] and s["current"] is None and s["state"] != "stalled"

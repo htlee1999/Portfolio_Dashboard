@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterator
 
 import requests
 
-from config import (GEMINI_AVAILABLE, ML_AVAILABLE, get_gemini_api_key, get_ollama_model, get_ollama_url,
+from config import (GEMINI_AVAILABLE, ML_AVAILABLE, gemini_client, get_ollama_model, get_ollama_url,
                     is_gemini_api_configured, normalize_symbol)
 
 from . import fundamentals, plan, portfolio, predictive, privacy, returns, risk, sentiment, technical, usage, valuation
@@ -284,9 +284,8 @@ def _gemini(username: str, system: str, messages: list[dict], tools: list[str], 
         raise RuntimeError("The google-genai package is not installed.")
     if not is_gemini_api_configured():
         raise RuntimeError("GEMINI_API_KEY is not configured in .env.")
-    from google import genai
 
-    client = genai.Client(api_key=get_gemini_api_key())
+    client = gemini_client()
     contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
                 for m in messages]
     declarations = [{"name": s["name"], "description": s["description"], "parameters_json_schema": s["parameters"]}

@@ -21,6 +21,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
   const [starting, setStarting] = useState(false);
   const s = data?.status?.user === user?.username ? data?.status : null;
   const running = s?.state === "running";
+  const stalled = s?.state === "stalled";
 
   // Reload the signals once a run this page watched finishes, so its calls appear.
   const wasRunning = useRef(false);
@@ -72,15 +73,22 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
         </Banner>
       )}
 
-      {s && (running || s.state === "waiting") ? (
+      {stalled && (
+        <Banner tone="warning" title="Run stalled">
+          No progress on {s.current} since {shortTime(s.updated)}, probably a request cut off while the Mac slept. The next hourly start stops it and
+          carries on{user?.role === "admin" && <>, or use Run next {data.chunk} now</>}.
+        </Banner>
+      )}
+
+      {s && (running || stalled || s.state === "waiting") ? (
         <div className="mb-4 space-y-2">
           <div className="flex items-center gap-2 text-callout">
             {running && <Spinner className="size-4" />}
             <span>
               {s.done} of {s.total} stocks done
-              {running && s.current ? (
+              {(running || stalled) && s.current ? (
                 <>
-                  , assessing <span className="font-semibold">{s.current}</span>
+                  , {stalled ? "stuck on" : "assessing"} <span className="font-semibold">{s.current}</span>
                   {data.held.includes(s.current) && " (one of your holdings)"}
                 </>
               ) : (
@@ -103,7 +111,7 @@ export function ScheduledCard({ onFinished }: { onFinished: () => void }) {
         </div>
       ) : (
         <p className="mb-4 text-callout">
-          Next run {dateTime(data.next_run)}: {data.next_compare ? "local model and Gemini (comparison week)" : `local model (${data.model})`}.
+          Next run {dateTime(data.next_run)}: {data.next_compare ? `local model (${data.model}) and Gemini` : `local model (${data.model})`}.
           {" "}
           {data.total} stocks: your {data.held.length} holdings first, then the fixed list of {data.list_size}
           {onList > 0 && ` (${onList} of your holdings are on it too)`}.

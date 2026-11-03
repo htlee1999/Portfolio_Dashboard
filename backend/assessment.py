@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 import requests
 
-from config import (GEMINI_AVAILABLE, get_gemini_api_key, get_ollama_model, get_ollama_url, is_gemini_api_configured,
+from config import (GEMINI_AVAILABLE, gemini_client, get_ollama_model, get_ollama_url, is_gemini_api_configured,
                     normalize_symbol, ollama_think)
 
 from . import fundamentals, macro, market, predictive, privacy, risk, sentiment, technical, usage, valuation
@@ -456,10 +456,9 @@ def _gemini(prompt: str) -> tuple[Assessment, str, int | None, int | None]:
         raise RuntimeError("The google-genai package is not installed.")
     if not is_gemini_api_configured():
         raise RuntimeError("GEMINI_API_KEY is not configured in .env.")
-    from google import genai
 
     usage.acquire(usage.estimate_tokens(prompt))
-    client = genai.Client(api_key=get_gemini_api_key())
+    client = gemini_client()
     response = client.models.generate_content(
         model=MODEL,
         contents=prompt,

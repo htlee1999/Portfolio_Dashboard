@@ -215,10 +215,10 @@ def get_scheduled(user: dict = Depends(current_user)):
     return clean({
         "installed": os.path.exists(batch.PLIST),
         "next_run": nxt.isoformat(),
-        "next_compare": batch.is_last_week(nxt.date()),
+        "next_compare": "gemini" in batch.providers_for("auto"),
         "model": get_ollama_model(),
         # The chunk size of the run in progress, or of the next run.
-        "chunk": batch.chunk_size(s["total"] if s and s.get("user") == user["username"] and s["state"] in ("running", "waiting")
+        "chunk": batch.chunk_size(s["total"] if s and s.get("user") == user["username"] and s["state"] in ("running", "stalled", "waiting")
                                   else len(symbols)),
         "held": held,
         "list_size": len(batch.UNIVERSE),
@@ -234,8 +234,8 @@ def get_scheduled(user: dict = Depends(current_user)):
 
 @router.post("/scheduled/run")
 def start_scheduled_run(user: dict = Depends(admin_user)):
-    """Assess the next chunk of today's run now, starting the run if there isn't one (comparison in
-    the last week of the month, as the schedule would)."""
+    """Assess the next chunk of the latest run day's run now, starting the run if there isn't one. A
+    stalled chunk is stopped first."""
     s = batch.status()
     if s and s["state"] == "running":
         raise HTTPException(409, "A chunk is already being assessed")
